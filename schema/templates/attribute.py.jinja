@@ -1,0 +1,36 @@
+{% if multivalued and pattern %}
+{{ name }}: list[Annotated[str, Field(pattern=r"{{ pattern }}")]]{% if not required %} | None{% endif %} = Field(
+{% else %}
+{{ name }}: {{ range }} = Field(
+{% endif %}
+    default={{ field }},
+{% if alias %}
+    alias="{{ alias }}",
+{% endif %}
+{% if description %}
+    description="""{{ description | wordwrap(56) | indent(4) }}""",
+{% endif %}
+{% if pattern and not multivalued %}
+    pattern=r"{{ pattern }}",
+{% endif %}
+{% if equals_number is not none %}
+    ge={{ equals_number }}, le={{ equals_number }},
+{% else %}
+{% if minimum_value is not none %}
+    ge={{ minimum_value }},
+{% endif %}
+{% if maximum_value is not none %}
+    le={{ maximum_value }},
+{% endif %}
+{% endif %}
+{% if multivalued and exact_cardinality is not none %}
+    min_length={{ exact_cardinality }}, max_length={{ exact_cardinality }},
+{% elif multivalued %}
+{% if minimum_cardinality is not none %}
+    min_length={{ minimum_cardinality }},
+{% endif %}
+{% if maximum_cardinality is not none %}
+    max_length={{ maximum_cardinality }},
+{% endif %}
+{% endif %}
+)

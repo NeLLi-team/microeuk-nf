@@ -1,0 +1,18 @@
+[workspace]
+name = "interproscan-current-package"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]
+
+[package]
+name = "interproscan-current"
+version = "5.76.107.0"
+
+[package.build.backend]
+name = "pixi-build-rattler-build"
+version = "0.*"
+channels = [
+  "https://prefix.dev/pixi-build-backends",
+  "https://prefix.dev/conda-forge",
+  "https://prefix.dev/bioconda",
+]

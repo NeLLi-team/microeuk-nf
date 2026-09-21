@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 0 ]]; then
+  echo "usage: braker3-longrna-preflight" >&2
+  exit 2
+fi
+
+prefix="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+share_dir="${prefix}/share/braker3-longrna"
+
+braker_version="$(braker.pl --version)"
+if etp_help="$(gmetp.pl 2>&1)"; then
+  etp_status=0
+else
+  etp_status=$?
+fi
+if [[ ${etp_status} -ne 1 ]]; then
+  echo "Pinned GeneMark-ETP usage probe exited ${etp_status}, expected 1" >&2
+  exit 3
+fi
+if ! etp_version="$(printf '%s\n' "${etp_help}" \
+  | grep -E '^ETP version [0-9]+[.][0-9]+$')"; then
+  etp_version=""
+fi
+if [[ "${etp_version}" != "ETP version 1.02" ]]; then
+  echo "Pinned GeneMark-ETP usage probe did not report ETP version 1.02" >&2
+  exit 4
+fi
+prothint_version="$(prothint.py --version)"
+
+[[ "${braker_version}" == "braker.pl version 3.0.8" ]]
+[[ "${prothint_version}" == "prothint.py 2.6.0" ]]
+grep -F 'system("stringtie -L -p $cores -o $out_gff $in_bam");' \
+  "${share_dir}/ETP/bin/gmetp.pl" >/dev/null
+
+probe_home="$(mktemp -d)"
+probe_output="$(mktemp)"
+set +e
+HOME="${probe_home}" "${share_dir}/ETP/bin/gmes/gmhmme3" >"${probe_output}" 2>&1
+probe_status=$?
+set -e
+if ! grep -Fq 'GeneMark.hmm eukaryotic, version 3.68' "${probe_output}"; then
+  echo "Pinned public GeneMark executable did not report version 3.68" >&2
+  find "${probe_output}" "${probe_home}" -depth -delete
+  exit 5
+fi
+if grep -Eqi 'license key.*(not found|expired)|key has expired' "${probe_output}"; then
+  echo "Pinned public GeneMark executable unexpectedly requested a license key" >&2
+  find "${probe_output}" "${probe_home}" -depth -delete
+  exit 6
+fi
+find "${probe_output}" "${probe_home}" -depth -delete
+if [[ ${probe_status} -eq 126 || ${probe_status} -eq 127 ]]; then
+  echo "Pinned public GeneMark executable could not run" >&2
+  exit 7
+fi
+
+printf '%s\n' \
+  "braker=${braker_version}" \
+  "genemark_etp=${etp_version}" \
+  "prothint=${prothint_version}" \
+  "longrna_stringtie_mode=enabled" \
+  "genemark_empty_home_probe=version-3.68-no-key-error"

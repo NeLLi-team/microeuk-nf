@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != '--core-only' ) ]]; then
+  echo 'usage: interproscan-current-preflight [--core-only]' >&2
+  exit 2
+fi
+
+prefix="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+share_dir="${prefix}/share/interproscan-5.76-107.0"
+cd "${share_dir}"
+printf '%s  %s\n' \
+  '6356d3f0a816090d84d26dbba8fdf71386560552f3834d18da518f2de4292e03' \
+  'source.sha256' | sha256sum --check - >/dev/null
+printf '%s  %s\n' \
+  '536720912807610aa8935729f456b413a258ae3bd522b583cd4ea4cdadf5a1d1' \
+  'source-static.sha256' | sha256sum --check - >/dev/null
+# These manifests record upstream bytes before Rattler relocates binaries.
+# Installed binary hashes belong to the postprocessed conda package metadata.
+test -s copied-files.sha256
+sha256sum --check source-static.sha256 >/dev/null
+awk '$2 == "interproscan-5.jar" || $2 == "interproscan.properties" || $2 == ".nellidb_version/version.txt"' \
+  source.sha256 | sha256sum --check - >/dev/null
+copied_manifest_sha256="$(sha256sum copied-files.sha256)"
+copied_manifest_sha256="${copied_manifest_sha256%% *}"
+grep -Fx 'version: 5.76-107.0' .nellidb_version/version.txt >/dev/null
+test ! -e data
+test ! -e temp
+test ! -e work/idb
+test -d work/freemarker/WEB-INF/freemarker
+test -s work/template/interpro.zip
+test -s work/kvs/idb/entries.json
+test -s work/kvs/idb/entryDB/CURRENT
+test ! -e work/kvs/idb/entryDB/LOCK
+test -x "${prefix}/bin/interproscan.sh"
+
+for executable in java perl python3; do
+  executable_path="$(command -v "${executable}")"
+  if [[ "${executable_path}" != "${prefix}/bin/"* ]]; then
+    echo "${executable} must resolve inside the Pixi prefix: ${executable_path}" >&2
+    exit 2
+  fi
+done
+java_version="$(java -version 2>&1)"
+[[ "${java_version}" == *'version "11.'* ]]
+python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+perl -e 'exit(($] >= 5 && $] < 6) ? 0 : 1)'
+
+if [[ ${1:-} == '--core-only' ]]; then
+  printf '%s\n' \
+    'interproscan_release=5.76-107.0' \
+    'source_manifest_sha256=6356d3f0a816090d84d26dbba8fdf71386560552f3834d18da518f2de4292e03' \
+    'static_source_manifest_sha256=536720912807610aa8935729f456b413a258ae3bd522b583cd4ea4cdadf5a1d1' \
+    "pre_relocation_manifest_sha256=${copied_manifest_sha256}" \
+    'core_identity=verified' \
+    'source_copy_manifest=recorded' \
+    'database=external-not-checked'
+  exit 0
+fi
+if [[ -z "${INTERPROSCAN_DATA_DIR:-}" || ! -d "${INTERPROSCAN_DATA_DIR}" ]]; then
+  echo 'INTERPROSCAN_DATA_DIR must name the release-matched external data directory.' >&2
+  exit 2
+fi
+
+for sentinel in \
+  antifam/8.0/AntiFam.hmm \
+  gene3d/4.3.0/gene3d_main.hmm \
+  hamap/2025_01/hamap.hmm.lib \
+  ncbifam/17.0/ncbifam.hmm \
+  panther/19.0/famhmm/binHmm \
+  pfam/38.0/pfam_a.hmm \
+  pirsf/3.10/sf_hmm_all \
+  pirsr/2025_01/sr_hmm_all \
+  sfld/4/sfld.hmm \
+  superfamily/1.75/hmmlib_1.75; do
+  if [[ ! -s "${INTERPROSCAN_DATA_DIR}/${sentinel}" ]]; then
+    echo "Missing InterProScan 5.76 data sentinel: ${sentinel}" >&2
+    exit 3
+  fi
+done
+
+printf '%s\n' \
+  'interproscan_release=5.76-107.0' \
+  'source_manifest_sha256=6356d3f0a816090d84d26dbba8fdf71386560552f3834d18da518f2de4292e03' \
+  'static_source_manifest_sha256=536720912807610aa8935729f456b413a258ae3bd522b583cd4ea4cdadf5a1d1' \
+  "pre_relocation_manifest_sha256=${copied_manifest_sha256}" \
+  'core_identity=verified' \
+  'source_copy_manifest=recorded' \
+  'database_sentinels=verified'

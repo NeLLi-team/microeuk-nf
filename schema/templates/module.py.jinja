@@ -1,0 +1,17 @@
+"""Pydantic models generated from the authoritative LinkML catalog schema."""
+
+{{ python_imports }}
+from enum import StrEnum
+from typing import Annotated
+
+{{ base_model }}
+
+{% for enum in enums.values() %}
+{{ enum }}
+{% endfor %}
+
+{% for record in classes.values() %}
+{{ record }}
+{% endfor %}
+
+{% include 'footer.py.jinja' %}

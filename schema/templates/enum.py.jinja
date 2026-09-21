@@ -1,0 +1,5 @@
+class {{ name }}(StrEnum):
+    """Allowed {{ name }} values."""
+{% for value in values.values() %}
+    {{ value.label }} = "{{ value.value }}"
+{% endfor %}

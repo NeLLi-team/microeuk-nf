@@ -1,0 +1,10 @@
+class {{ name }}(BaseModel):
+    """Reject unknown fields and implicit type conversions."""
+
+    model_config = ConfigDict(
+        strict=True,
+        extra="forbid",
+        validate_assignment=True,
+        validate_default=True,
+        use_enum_values=True,
+    )

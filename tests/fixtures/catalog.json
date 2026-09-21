@@ -1,0 +1,510 @@
+{
+  "schema_version": "1.0.0",
+  "workflow_name": "protist-meta-nf",
+  "workflow_version": "0.1.0",
+  "source_revision": "fixture-revision",
+  "samples": [
+    {
+      "sample_id": "S1",
+      "description": "Representative mixed-community fixture",
+      "genetic_code": 1
+    }
+  ],
+  "runs": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "platform": "ont"
+    }
+  ],
+  "artifacts": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "dna-reads",
+      "kind": "dna_reads",
+      "path": "inputs/S1.fastq.gz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size_bytes": 1000
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "filtered-reads",
+      "kind": "dna_reads",
+      "path": "results/S1.filtered.fastq.gz",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "size_bytes": 800,
+      "producer_stage_id": "filter"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "read-qc-report",
+      "kind": "qc_report",
+      "path": "results/S1.read-stats.tsv",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "size_bytes": 100,
+      "producer_stage_id": "filter"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "assembly-fasta",
+      "kind": "assembly",
+      "path": "results/S1.assembly.fasta",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "size_bytes": 600,
+      "producer_stage_id": "assemble"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "bins-fasta",
+      "kind": "bin_fasta",
+      "path": "results/S1.bins.tar",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "size_bytes": 500,
+      "producer_stage_id": "binning"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "coverage-table",
+      "kind": "depth_table",
+      "path": "results/S1.coverage.tsv",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "size_bytes": 100,
+      "producer_stage_id": "binning"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "qc-report",
+      "kind": "qc_report",
+      "path": "results/S1.checkeuk.tsv",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "size_bytes": 100,
+      "producer_stage_id": "checkeuk"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "taxonomy-report",
+      "kind": "taxonomy_report",
+      "path": "results/S1.gtdbtk.tsv",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "size_bytes": 100,
+      "producer_stage_id": "taxonomy"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "ssu-report",
+      "kind": "ssu_report",
+      "path": "results/S1.ssu.tsv",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "size_bytes": 100,
+      "producer_stage_id": "ssu"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "viral-report",
+      "kind": "viral_report",
+      "path": "results/S1.genomad.tsv",
+      "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "size_bytes": 100,
+      "producer_stage_id": "viruses"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "phenotype-report",
+      "kind": "phenotype_report",
+      "path": "results/S1.symclatron.tsv",
+      "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "size_bytes": 100,
+      "producer_stage_id": "phenotype"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "genes-gff",
+      "kind": "gene_annotation",
+      "path": "results/S1.genes.gff3",
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "size_bytes": 100,
+      "producer_stage_id": "genes"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "proteins-faa",
+      "kind": "protein_fasta",
+      "path": "results/S1.proteins.faa",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "size_bytes": 100,
+      "producer_stage_id": "genes"
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "artifact_id": "annotations-tsv",
+      "kind": "functional_annotation",
+      "path": "results/S1.annotations.tsv",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size_bytes": 100,
+      "producer_stage_id": "annotations"
+    }
+  ],
+  "stages": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "filter",
+      "name": "Filter ONT reads",
+      "status": "completed",
+      "tool_name": "Filtlong",
+      "tool_version": "0.2.1",
+      "command": "filtlong inputs/S1.fastq.gz | gzip > results/S1.filtered.fastq.gz",
+      "input_artifact_ids": ["dna-reads"],
+      "expected_result_keys": ["read_stats:reads1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "assemble",
+      "name": "Assemble DNA reads",
+      "status": "completed",
+      "tool_name": "myloasm",
+      "tool_version": "0.6.0",
+      "command": "myloasm results/S1.filtered.fastq.gz -o results/S1 -t 4",
+      "input_artifact_ids": ["filtered-reads"],
+      "expected_result_keys": ["assemblies:asm1", "contigs:ctg1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "binning",
+      "name": "Bin assembly contigs",
+      "status": "completed",
+      "tool_name": "QuickBin",
+      "tool_version": "1.2.0",
+      "command": "quickbin results/S1.assembly.fasta results/S1.coverage.tsv",
+      "input_artifact_ids": ["assembly-fasta", "filtered-reads"],
+      "expected_result_keys": ["bins:bin1", "memberships:membership1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "checkeuk",
+      "name": "Assess eukaryotic completeness",
+      "status": "completed",
+      "tool_name": "CheckEUK",
+      "tool_version": "0.12.0",
+      "command": "checkeuk -i results/bins -o results/S1 --resources checkeuk-resources --threads 4",
+      "database_name": "CheckEUK resources",
+      "database_version": "v1.0.6",
+      "input_artifact_ids": ["bins-fasta"],
+      "expected_result_keys": ["qc:qc-checkeuk"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "taxonomy",
+      "name": "Classify prokaryotic candidates",
+      "status": "completed",
+      "tool_name": "GTDB-Tk",
+      "tool_version": "2.7.2",
+      "command": "gtdbtk classify_wf --genome_dir results/bins --out_dir results/gtdb --cpus 4",
+      "database_name": "GTDB",
+      "database_version": "r232",
+      "input_artifact_ids": ["bins-fasta"],
+      "expected_result_keys": ["taxonomy:tax1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "ssu",
+      "name": "Find SSU loci",
+      "status": "completed",
+      "tool_name": "SSUextract",
+      "tool_version": "1.2.2+4dcf85d",
+      "command": "pipeline_cli.sh run -profile local -q results/S1.assembly.fasta --outdir results/ssu",
+      "database_name": "SSUextract curated",
+      "database_version": "fixture",
+      "input_artifact_ids": ["assembly-fasta"],
+      "expected_result_keys": ["ssu:ssu1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "viruses",
+      "name": "Detect viral sequences",
+      "status": "completed",
+      "tool_name": "geNomad",
+      "tool_version": "1.11.0",
+      "command": "genomad end-to-end results/S1.assembly.fasta results/genomad genomad-db",
+      "database_name": "geNomad database",
+      "database_version": "1.9",
+      "input_artifact_ids": ["assembly-fasta"],
+      "expected_result_keys": ["viruses:virus1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "phenotype",
+      "name": "Predict phenotype",
+      "status": "completed",
+      "tool_name": "Symclatron",
+      "tool_version": "0.10.10",
+      "command": "symclatron classify --genome-dir results/bins --input-kind contigs --output-dir results/symclatron",
+      "database_name": "Symclatron packaged resources",
+      "database_version": "0.10.10",
+      "input_artifact_ids": ["bins-fasta"],
+      "expected_result_keys": ["phenotypes:phenotype1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "genes",
+      "name": "Call genes",
+      "status": "completed",
+      "tool_name": "Prodigal-gv",
+      "tool_version": "2.11.0",
+      "command": "prodigal-gv -i results/bin1.fa -o results/S1.genes.gff3 -a results/S1.proteins.faa",
+      "input_artifact_ids": ["bins-fasta"],
+      "expected_result_keys": ["genes:gene1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "annotations",
+      "name": "Annotate proteins",
+      "status": "completed",
+      "tool_name": "eggNOG-mapper",
+      "tool_version": "2.1.12",
+      "command": "emapper.py -i results/S1.proteins.faa -o results/S1.annotations",
+      "database_name": "eggNOG",
+      "database_version": "5.0.2",
+      "input_artifact_ids": ["proteins-faa"],
+      "expected_result_keys": ["annotations:ann1"]
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "empty-checkv",
+      "name": "Assess additional viral sequences",
+      "status": "completed",
+      "tool_name": "CheckV",
+      "tool_version": "1.0.3",
+      "command": "checkv end_to_end results/S1.no-additional-viruses.fna results/checkv -t 4",
+      "database_name": "CheckV",
+      "database_version": "1.5",
+      "input_artifact_ids": ["assembly-fasta"],
+      "expected_result_keys": []
+    },
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "braker3",
+      "name": "Call eukaryotic genes",
+      "status": "pending",
+      "status_reason": "No supported eukaryotic bin in this fixture",
+      "tool_name": "BRAKER3",
+      "tool_version": "3.0.8",
+      "input_artifact_ids": ["bins-fasta"],
+      "expected_result_keys": []
+    }
+  ],
+  "read_stats": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "filter",
+      "artifact_id": "read-qc-report",
+      "record_id": "reads1",
+      "total_reads": 10,
+      "total_bases": 10000,
+      "retained_reads": 8,
+      "retained_bases": 9000,
+      "rejected_reads": 2,
+      "rejected_bases": 1000
+    }
+  ],
+  "assemblies": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "assemble",
+      "artifact_id": "assembly-fasta",
+      "assembly_id": "asm1",
+      "assembly_length_bp": 1000,
+      "contig_count": 1,
+      "n50_bp": 1000,
+      "gc_fraction": 0.42
+    }
+  ],
+  "contigs": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "assemble",
+      "artifact_id": "assembly-fasta",
+      "contig_id": "ctg1",
+      "assembly_id": "asm1",
+      "length_bp": 1000,
+      "gc_fraction": 0.42,
+      "mean_depth_x": 18.5,
+      "coverage_artifact_id": "coverage-table",
+      "is_circular": false
+    }
+  ],
+  "bins": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "binning",
+      "artifact_id": "bins-fasta",
+      "bin_id": "bin1",
+      "assembly_id": "asm1",
+      "candidate_class": "bacterial_archaeal_candidate"
+    }
+  ],
+  "memberships": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "binning",
+      "artifact_id": "bins-fasta",
+      "membership_id": "membership1",
+      "bin_id": "bin1",
+      "contig_id": "ctg1"
+    }
+  ],
+  "qc": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "checkeuk",
+      "artifact_id": "qc-report",
+      "record_id": "qc-checkeuk",
+      "target_kind": "bin",
+      "target_id": "bin1",
+      "completeness_percent": 81.5,
+      "contamination_percent": 2.1,
+      "completeness_basis": "pfam_union1085_ridge",
+      "contamination_basis": "flagged_marker_loci_per_present_core_locus",
+      "checkeuk_pfam_ridge_completeness_percent": 81.5,
+      "checkeuk_bom_completeness_percent": 78.4,
+      "checkeuk_inventory74_present": 61,
+      "checkeuk_expected_markers_present": 58,
+      "checkeuk_expected_markers_total": 70,
+      "checkeuk_pfam1085_distinct": 742
+    }
+  ],
+  "taxonomy": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "taxonomy",
+      "artifact_id": "taxonomy-report",
+      "record_id": "tax1",
+      "target_kind": "bin",
+      "target_id": "bin1",
+      "rank": "phylum",
+      "taxon_name": "Bacillota",
+      "taxon_id": "2",
+      "score": 0.98
+    }
+  ],
+  "ssu": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "ssu",
+      "artifact_id": "ssu-report",
+      "record_id": "ssu1",
+      "contig_id": "ctg1",
+      "ssu_type": "rrna_16s",
+      "start": 100,
+      "end": 300,
+      "strand": "plus",
+      "hit_accession": "NR_000001",
+      "reference_identifiers": "SILVA:REF_000001.1",
+      "reference_source": "SILVA",
+      "reference_versions": "SILVA:138.2",
+      "reference_taxonomy": "[{\"assignment_method\":\"native\",\"taxonomy\":\"Bacteria;Candidateobacteria\",\"taxonomy_source\":\"SILVA\"}]",
+      "taxon_name": "Unclassified",
+      "taxonomy_assignment_method": "no_runtime_calibration",
+      "identity_percent": 97.5,
+      "query_coverage_percent": 99.0
+    }
+  ],
+  "viruses": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "viruses",
+      "artifact_id": "viral-report",
+      "record_id": "virus1",
+      "contig_id": "ctg1",
+      "start": 400,
+      "end": 700,
+      "strand": "unknown",
+      "score": 0.91,
+      "viral_taxon": "Caudoviricetes"
+    }
+  ],
+  "phenotypes": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "phenotype",
+      "artifact_id": "phenotype-report",
+      "record_id": "phenotype1",
+      "bin_id": "bin1",
+      "raw_class": "anaerobe",
+      "raw_score": 0.81,
+      "threshold": 0.725,
+      "passes_threshold": true,
+      "thresholded_class": "anaerobe",
+      "is_applicable": true
+    }
+  ],
+  "genes": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "genes",
+      "artifact_id": "genes-gff",
+      "gene_id": "gene1",
+      "contig_id": "ctg1",
+      "bin_id": "bin1",
+      "start": 50,
+      "end": 350,
+      "strand": "plus",
+      "phase": 0,
+      "genetic_code": 1
+    }
+  ],
+  "annotations": [
+    {
+      "sample_id": "S1",
+      "run_id": "R1",
+      "stage_id": "annotations",
+      "artifact_id": "annotations-tsv",
+      "annotation_id": "ann1",
+      "gene_id": "gene1",
+      "database_name": "eggNOG",
+      "database_version": "5.0.2",
+      "accession": "COG0001",
+      "function_name": "Example conserved protein",
+      "start": 10,
+      "end": 80,
+      "score": 55.0,
+      "evalue": 1e-20
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[workspace]
+name = "protist-interproscan-current"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]
+
+[dependencies]
+interproscan-current = { path = "package" }
+
+[tasks]
+check-core = "interproscan-current-preflight --core-only"
+check-cli = "interproscan-current-preflight"

@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/prefix-dev/recipe-format/main/schema.json
+
+context:
+  version: "5.76.107.0"
+
+package:
+  name: interproscan-current
+  version: ${{ version }}
+
+build:
+  number: 1
+  string: local_core_1
+  script:
+    - bash $RECIPE_DIR/build.sh
+
+requirements:
+  build:
+    - bash
+    - coreutils
+    - findutils
+    - grep
+    - patchelf
+    - unzip
+  run:
+    - bash
+    - coreutils
+    - findutils
+    - gawk
+    - grep
+    - libgcc-ng
+    - libstdcxx-ng
+    - openjdk >=11,<12
+    - pcre2
+    - perl >=5.32,<6
+    - python >=3.12,<3.13
+    - sed
+
+tests:
+  - script:
+      - interproscan-current-preflight --core-only
+
+about:
+  homepage: https://github.com/ebi-pf-team/interproscan
+  documentation: https://interproscan-docs.readthedocs.io/
+  license: Apache-2.0 AND LicenseRef-InterProScan-Bundled-Tools
+  summary: Pinned InterProScan 5.76-107.0 core for an external matching database
+  description: |
+    Local package of the official InterProScan 5.76-107.0 launcher, jars,
+    and bundled analysis binaries. The release-matched data directory stays
+    outside the package. Bundled analysis tools retain their upstream terms.
+    Do not publish this local package.

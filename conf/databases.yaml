@@ -1,0 +1,177 @@
+schema_version: 1.0.0
+entries:
+  core_manifest:
+    path: ../pixi.toml
+    kind: file
+    version: pixi.lock
+    mode: core
+    executables:
+      default:
+        [python, nextflow, java, awk, bash, basename, cat, cmp, comm, cp, date,
+         diff, dirname, env, find, grep, head, ln, ls, mkdir, mktemp, mv, ps,
+         realpath, rm, sed, sha256sum, sleep, sort, tail, tee, touch, tr, uname,
+         uniq, wc]
+      core: [chopper, seqkit, pigz, myloasm, minimap2, samtools]
+  bbtools_manifest:
+    path: ../envs/bbtools/pixi.toml
+    kind: file
+    version: '40.02'
+    mode: core
+    executables:
+      bbtools: [quickbin.sh, quickclade.sh, bbversion.sh, java]
+  quickclade_ref:
+    path: /clusterfs/jgi/groups/gentech/homes/bbushnell/BBTools/resources/refseqA48_with_ribo.spectra.gz
+    kind: file
+    version: RefSeqA48_with_ribo
+    mode: core
+  checkm_manifest:
+    path: ../../09enrichments-ont/pixi.toml
+    kind: file
+    version: adjacent-pixi.lock
+    mode: full
+    executables:
+      checkm1: [checkm, python]
+      checkm2: [checkm2, python]
+      gtdbtk232: [gtdbtk, python]
+      symclatron: [symclatron, python]
+  viral_manifest:
+    path: ../../08protist-ont/pixi.toml
+    kind: file
+    version: adjacent-pixi.lock
+    mode: full
+    executables:
+      default: [genomad, python]
+  checkv_manifest:
+    path: ../../../09pagd/opdetect-nf/pixi.toml
+    kind: file
+    version: adjacent-pixi.lock
+    mode: full
+    executables:
+      default: [checkv, python]
+  annotation_manifest:
+    path: ../envs/annotation/pixi.toml
+    kind: file
+    version: adjacent-pixi.lock
+    mode: full
+    executables:
+      eggnog: [emapper.py, python, diamond]
+  interpro_manifest:
+    path: ../envs/annotation/current/pixi.toml
+    kind: file
+    version: 5.76.107.0-local-core
+    mode: full
+    executables:
+      default: [interproscan.sh, interproscan-current-preflight, java, python3, perl]
+  checkeuk_app:
+    path: ../../../apps/CheckEUK
+    kind: directory
+    version: 0.12.0-4a759ab2a1998d5af37f73a8004a50180dd48b49
+    mode: full
+    sentinels: [pixi.toml, pixi.lock, bin/checkeuk]
+    executables:
+      default: [python, checkeuk, hmmsearch, mmseqs, mafft, seqkit, prodigal]
+  checkeuk_db:
+    path: ../../../apps/CheckEUK/checkeuk-resources
+    kind: directory
+    version: v1.0.6
+    mode: full
+    sentinels: [DB_VERSION]
+  gvclass_app:
+    path: ../../../apps/gvclass
+    kind: directory
+    version: 2.1.0-d96e2ba58e0788c6d75d3fca9e1dae956fba9ada
+    mode: full
+    sentinels: [pixi.toml, pixi.lock, gvclass]
+    executables:
+      default: [python, iqtree3, diamond]
+  gvclass_db:
+    path: ../../../apps/gvclass/resources
+    kind: directory
+    version: v2.0.0
+    mode: full
+    sentinels: [DB_VERSION]
+  ssuextract_app:
+    path: ../../../apps/ssuextract
+    kind: directory
+    version: 1.2.2-4dcf85d3796ef4ade3881594ad828428557d43f2
+    mode: full
+    sentinels:
+      [pixi.toml, pixi.lock, main.nf, nextflow.config, config/base.config,
+       scripts/database_manager.py]
+    executables:
+      default: [python, nextflow, java, cmsearch, blastn, zstd]
+  ssuextract_db:
+    path: ../../09enrichments-ont/01_shared_preprocessing/resources/ssuextract_database
+    kind: directory
+    version: 1.0.2
+    mode: full
+    sentinels: [curated/manifest.json, curated/provenance.json]
+  ssuextract_models:
+    path: ../../../apps/ssuextract/resources/models
+    kind: directory
+    version: source-commit-4dcf85d
+    mode: full
+    sentinels: [RF00177.cm, RF01960.cm]
+  checkm1_db:
+    path: ../../../../../databases/checkm
+    kind: directory
+    version: installed-checkm-marker-set
+    mode: full
+    sentinels: [hmms/checkm.hmm]
+  checkm2_db:
+    path: ../../../../../databases/checkm2/CheckM2_database/uniref100.KO.1.dmnd
+    kind: file
+    version: CheckM2-v1.1.0-model-compatible
+    mode: full
+  gtdbtk_db:
+    path: ../../../../../databases/gtdbtk/release232
+    kind: directory
+    version: r232
+    mode: full
+  genomad_db:
+    path: ../../../../../databases/genomad_db
+    kind: directory
+    version: '1.9'
+    mode: full
+    sentinels: [genomad_db, genomad_db.dbtype]
+  checkv_db:
+    path: ../../../../../databases/checkv_db
+    kind: directory
+    version: '1.5'
+    mode: full
+    sentinels: [README.txt, genome_db/checkv_reps.dmnd, hmm_db/checkv_hmms.tsv]
+  eggnog_db:
+    path: ../../../../../databases/eggnogmapper
+    kind: directory
+    version: 5.0.2
+    mode: full
+    sentinels: [eggnog.db, eggnog.taxa.db, eggnog_proteins.dmnd]
+  interproscan_db:
+    path: ../../../../../databases/interproscan/data
+    kind: directory
+    version: 5.76-107.0
+    mode: full
+  dfam_db:
+    path: ../../../../../databases/dfam/4.0/famdb
+    kind: directory
+    version: '4.0'
+    mode: full
+    sentinels:
+      [dfam40.0.h5, dfam40.curated.consensus.0.h5,
+       PUBLISHER_MD5SUMS, SHA256SUMS, sources.tsv]
+  gene_manifest:
+    path: ../envs/gene/pixi.toml
+    kind: file
+    version: adjacent-pixi.lock
+    mode: full
+    executables:
+      repeatmasker:
+        [BuildDatabase, RepeatModeler, RepeatClassifier, RepeatMasker, famdb.py]
+      prodigal-gv: [prodigal-gv]
+  braker_manifest:
+    path: ../envs/gene/longrna/pixi.toml
+    kind: file
+    version: 3.0.8-longrna-source-lock
+    mode: full
+    executables:
+      default: [braker.pl, gmetp.pl, prothint.py, braker3-longrna-preflight, perl, python]

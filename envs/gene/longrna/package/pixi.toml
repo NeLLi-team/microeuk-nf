@@ -1,0 +1,18 @@
+[workspace]
+name = "braker3-longrna-package"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]
+
+[package]
+name = "braker3-longrna"
+version = "3.0.8"
+
+[package.build.backend]
+name = "pixi-build-rattler-build"
+version = "0.*"
+channels = [
+  "https://prefix.dev/pixi-build-backends",
+  "https://prefix.dev/conda-forge",
+  "https://prefix.dev/bioconda",
+]

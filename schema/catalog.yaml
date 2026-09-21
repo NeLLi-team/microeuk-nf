@@ -1,0 +1,1042 @@
+id: https://w3id.org/protist-meta-nf/catalog
+name: protist_meta_catalog
+title: Protist metagenome workflow catalog
+description: >-
+  Validated records for a sample- and run-scoped protist metagenome workflow
+  catalog. Unknown measurements are absent and become SQL NULL, never zero.
+prefixes:
+  linkml: https://w3id.org/linkml/
+  protist_meta: https://w3id.org/protist-meta-nf/catalog/
+default_prefix: protist_meta
+default_range: string
+imports:
+  - linkml:types
+
+enums:
+  Platform:
+    description: Supported DNA sequencing platform.
+    permissible_values:
+      ont:
+        description: Oxford Nanopore basecalled DNA reads.
+      pacbio_hifi:
+        description: PacBio circular-consensus HiFi DNA reads.
+  RnaTechnology:
+    description: RNA evidence technology, kept separate during annotation.
+    permissible_values:
+      illumina_short:
+      pacbio_isoseq:
+      ont_cdna:
+      ont_direct_rna:
+  ArtifactKind:
+    description: Role of a file in the workflow.
+    permissible_values:
+      dna_reads:
+      rna_reads:
+      assembly:
+      alignment:
+      depth_table:
+      bin_fasta:
+      qc_report:
+      taxonomy_report:
+      ssu_report:
+      viral_report:
+      phenotype_report:
+      gene_annotation:
+      protein_fasta:
+      functional_annotation:
+      workflow_report:
+      other:
+  StageStatus:
+    description: Terminal state of a workflow stage represented in the catalog.
+    permissible_values:
+      completed:
+      failed:
+      skipped:
+      pending:
+  TargetKind:
+    description: Entity type evaluated by QC or taxonomy evidence.
+    permissible_values:
+      assembly:
+      contig:
+      bin:
+      virus:
+      gene:
+  CandidateClass:
+    description: Evidence-routing class retained without implying acceptance as a MAG.
+    permissible_values:
+      eukaryotic_candidate:
+      bacterial_archaeal_candidate:
+      viral_candidate:
+      conflicting:
+      unresolved:
+      chaff:
+  Strand:
+    description: Feature strand relative to the stored contig sequence.
+    permissible_values:
+      plus:
+      minus:
+      unknown:
+  SsuType:
+    description: Ribosomal RNA locus type.
+    permissible_values:
+      rrna_16s:
+      rrna_18s:
+      rrna_23s:
+      rrna_28s:
+      rrna_5s:
+      rrna_5_8s:
+
+slots:
+  schema_version:
+    description: Version of this complete bundle contract.
+    range: string
+    pattern: '^1\.0\.0$'
+  workflow_name:
+    description: Canonical workflow name.
+    range: string
+    pattern: '^protist-meta-nf$'
+  workflow_version:
+    description: Workflow version label that produced this bundle.
+    range: string
+    pattern: '^\S+$'
+  source_revision:
+    description: Immutable source revision or working-tree content hash for this bundle.
+    range: string
+    pattern: '^\S+$'
+  sample_id:
+    description: Stable sample identifier unique within the catalog.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+  run_id:
+    description: Stable workflow run identifier scoped by sample_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+  stage_id:
+    description: Stable stage identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+  artifact_id:
+    description: Stable artifact identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+  description:
+    description: Short operator-supplied description.
+    range: string
+  genetic_code:
+    description: NCBI translation table number used or explicitly requested for gene calling.
+    range: integer
+    minimum_value: 1
+  platform:
+    description: DNA sequencing platform for this run.
+    range: Platform
+  rna_technology:
+    description: Technology of optional, sample-bound RNA evidence.
+    range: RnaTechnology
+  basecaller:
+    description: Basecaller name recorded for basecalled ONT reads, when available.
+    range: string
+    pattern: '^\S+$'
+  basecaller_model:
+    description: Exact basecaller model recorded for basecalled ONT reads.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  library_prep:
+    description: Sequencing library preparation recorded for this run.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  kind:
+    description: Artifact role.
+    range: ArtifactKind
+  path:
+    description: Workflow-relative or absolute artifact path recorded at publication.
+    range: string
+    pattern: '^[^\x22\x27\r\n]+$'
+  sha256:
+    description: Lowercase SHA-256 digest of artifact bytes.
+    range: string
+    pattern: '^[0-9a-f]{64}$'
+  size_bytes:
+    description: Artifact size in bytes.
+    range: integer
+    minimum_value: 0
+  producer_stage_id:
+    description: Stage that produced the artifact; absent only for external inputs.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+  name:
+    description: Stable human-readable name.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  status:
+    description: Terminal workflow stage state.
+    range: StageStatus
+  status_reason:
+    description: Required reason for failed, skipped, or pending stages.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  notes:
+    description: Interpretation limits and native evidence retained outside normalized fields.
+    range: string
+  tool_name:
+    description: Executable or workflow component that ran the stage.
+    range: string
+    pattern: '^\S+$'
+  tool_version:
+    description: Exact tool version or immutable source revision.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  command:
+    description: Exact executed command for a completed stage, with secrets excluded.
+    range: string
+    pattern: '^\S(?:[\s\S]*\S)?$'
+  database_name:
+    description: Reference database name used by the stage, when applicable.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  database_version:
+    description: Exact reference database release or immutable digest.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  database_sha256:
+    description: SHA-256 digest of the database manifest, when recorded.
+    range: string
+    pattern: '^[0-9a-f]{64}$'
+  input_artifact_ids:
+    description: Exact input artifacts consumed by this stage in the same sample and run.
+    range: string
+    multivalued: true
+  expected_result_keys:
+    description: >-
+      Exact collection-qualified result keys expected when this stage is
+      completed, for example assemblies:asm1 or contigs:ctg1.
+    range: string
+    multivalued: true
+    pattern: '^(read_stats|assemblies|contigs|bins|memberships|qc|taxonomy|ssu|viruses|phenotypes|genes|annotations):[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  record_id:
+    description: Stable record identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  total_reads:
+    description: Number of reads presented to filtering or summarization.
+    range: integer
+    minimum_value: 0
+  total_bases:
+    description: Total read bases presented, in base pairs.
+    range: integer
+    minimum_value: 0
+  retained_reads:
+    description: Number of reads retained after filtering.
+    range: integer
+    minimum_value: 0
+  retained_bases:
+    description: Number of retained read bases, in base pairs.
+    range: integer
+    minimum_value: 0
+  rejected_reads:
+    description: Number of reads rejected by filtering.
+    range: integer
+    minimum_value: 0
+  rejected_bases:
+    description: Number of rejected read bases, in base pairs.
+    range: integer
+    minimum_value: 0
+  assembly_id:
+    description: Stable assembly identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  assembly_length_bp:
+    description: Total assembled sequence length in base pairs.
+    range: integer
+    minimum_value: 0
+  contig_count:
+    description: Number of contigs in the assembly.
+    range: integer
+    minimum_value: 0
+  n50_bp:
+    description: Assembly N50 contig length in base pairs; absent for an empty assembly.
+    range: integer
+    minimum_value: 1
+  gc_fraction:
+    description: Fraction of G and C bases on a zero-to-one scale.
+    range: float
+    minimum_value: 0
+    maximum_value: 1
+  contig_id:
+    description: Stable contig identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^\S+$'
+  length_bp:
+    description: Sequence length in base pairs.
+    range: integer
+    minimum_value: 1
+  mean_depth_x:
+    description: Mean mapped DNA read depth in fold coverage.
+    range: float
+    minimum_value: 0
+  coverage_artifact_id:
+    description: Artifact containing the mapping or depth evidence for mean_depth_x.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*$'
+  is_circular:
+    description: Whether the producing tool called the sequence circular.
+    range: boolean
+  bin_id:
+    description: Stable bin identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  candidate_class:
+    description: Evidence-routing class; this field is not a MAG acceptance decision.
+    range: CandidateClass
+  membership_id:
+    description: Stable bin-membership identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  target_kind:
+    description: Entity type evaluated by this record.
+    range: TargetKind
+  target_id:
+    description: Identifier of the evaluated entity in the same sample and run.
+    range: string
+    pattern: '^\S+$'
+  completeness_percent:
+    description: Tool-reported generic completeness in percent, with tool-specific meaning.
+    range: float
+    minimum_value: 0
+    maximum_value: 100
+  contamination_percent:
+    description: Tool-reported contamination in percent, with tool-specific meaning.
+    range: float
+    minimum_value: 0
+    maximum_value: 100
+  completeness_basis:
+    description: Exact method or model defining completeness_percent.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  contamination_basis:
+    description: Exact method or denominator defining contamination_percent.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  completeness_query_support:
+    description: Verbatim GVClass query-support label for the completeness estimate, not a calibrated probability.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  completeness_model_reliability:
+    description: Verbatim GVClass model-reliability label for the completeness estimate, not a calibrated probability.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  contamination_query_support:
+    description: Verbatim GVClass query-support label for the contamination estimate, not a calibrated probability.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  contamination_model_reliability:
+    description: Verbatim GVClass model-reliability label for the contamination estimate, not a calibrated probability.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  checkeuk_pfam_ridge_completeness_percent:
+    description: CheckEUK Pfam-union ridge completeness in percent.
+    range: float
+    minimum_value: 0
+    maximum_value: 100
+  checkeuk_bom_completeness_percent:
+    description: CheckEUK best-of-models completeness estimate in percent.
+    range: float
+    minimum_value: 0
+    maximum_value: 100
+  checkeuk_inventory74_present:
+    description: Count of present families in the fixed 74-marker inventory.
+    range: integer
+    minimum_value: 0
+    maximum_value: 74
+  checkeuk_expected_markers_present:
+    description: Present markers in the CheckEUK clade-scored expected set.
+    range: integer
+    minimum_value: 0
+    maximum_value: 74
+  checkeuk_expected_markers_total:
+    description: Denominator of the CheckEUK clade-scored expected marker set.
+    range: integer
+    minimum_value: 1
+    maximum_value: 74
+  checkeuk_pfam1085_distinct:
+    description: Distinct recovered families in the global 1,085-family Pfam panel.
+    range: integer
+    minimum_value: 0
+    maximum_value: 1085
+  rank:
+    description: Taxonomic rank reported by the classification database.
+    range: string
+    pattern: '^\S+$'
+  taxon_name:
+    description: Taxon label reported at rank.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  taxon_id:
+    description: Database-specific taxon identifier, when available.
+    range: string
+    pattern: '^\S+$'
+  score:
+    description: Raw tool score in the tool's declared units.
+    range: float
+  lineage_confidence:
+    description: Verbatim GVClass label qualifying the full native lineage, not a calibrated per-rank probability.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  ssu_type:
+    description: Ribosomal RNA locus type.
+    range: SsuType
+  start:
+    description: One-based inclusive feature start coordinate on the referenced sequence.
+    range: integer
+    minimum_value: 1
+  end:
+    description: One-based inclusive feature end coordinate on the referenced sequence.
+    range: integer
+    minimum_value: 1
+  strand:
+    description: Feature strand relative to the referenced sequence.
+    range: Strand
+  hit_accession:
+    description: Best database hit accession, when a hit is available.
+    range: string
+    pattern: '^\S+$'
+  reference_identifiers:
+    description: Native identifiers for candidate reference hits, retained as raw delimited text.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  reference_source:
+    description: Native per-row source for candidate reference evidence, distinct from stage database provenance.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  reference_versions:
+    description: Native per-row versions for candidate reference evidence, retained as raw delimited text.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  reference_taxonomy:
+    description: Native candidate reference taxonomy, retained as raw decoded JSON array text.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  taxonomy_assignment_method:
+    description: Native per-row method explaining how the final taxon_name was assigned.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  identity_percent:
+    description: Alignment identity in percent.
+    range: float
+    minimum_value: 0
+    maximum_value: 100
+  query_coverage_percent:
+    description: Fraction of the query aligned, expressed as percent.
+    range: float
+    minimum_value: 0
+    maximum_value: 100
+  viral_taxon:
+    description: Viral lineage or label assigned by the caller.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  raw_class:
+    description: Unmodified phenotype class emitted by the predictor.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  raw_score:
+    description: Unmodified phenotype confidence score on a zero-to-one scale.
+    range: float
+    minimum_value: 0
+    maximum_value: 1
+  threshold:
+    description: Decision threshold applied to raw_score on a zero-to-one scale.
+    range: float
+    minimum_value: 0
+    maximum_value: 1
+  passes_threshold:
+    description: Whether raw_score meets the recorded decision threshold.
+    range: boolean
+  thresholded_class:
+    description: Predictor class after applying the recorded threshold, if any.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  is_applicable:
+    description: Whether workflow evidence permits biological interpretation for this target.
+    range: boolean
+  applicability_reason:
+    description: Required explanation when a phenotype prediction is not applicable.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  gene_id:
+    description: Stable gene identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  phase:
+    description: Coding-sequence phase as zero, one, or two bases.
+    range: integer
+    minimum_value: 0
+    maximum_value: 2
+  annotation_id:
+    description: Stable functional-annotation identifier scoped by sample_id and run_id.
+    range: string
+    pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'
+  accession:
+    description: Functional database accession.
+    range: string
+    pattern: '^\S+$'
+  function_name:
+    description: Function or domain name supplied by the source database.
+    range: string
+    pattern: '^\S(?:.*\S)?$'
+  evalue:
+    description: Reported expectation value; lower values indicate stronger matches.
+    range: float
+    minimum_value: 0
+  samples:
+    range: Sample
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Samples represented in the catalog.
+  runs:
+    range: Run
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Sample-scoped workflow runs.
+  artifacts:
+    range: Artifact
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Checksummed input and output files.
+  stages:
+    range: Stage
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Stage states, provenance, and expected key coverage.
+  read_stats:
+    range: ReadStatistics
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Read filtering and retention statistics.
+  assemblies:
+    range: Assembly
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Assembly summaries.
+  contigs:
+    range: Contig
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Assembly contigs.
+  bins:
+    range: Bin
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: QuickBin bins.
+  memberships:
+    range: Membership
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Contig-to-bin memberships.
+  qc:
+    range: QualityAssessment
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Independent tool-specific QC assessments.
+  taxonomy:
+    range: TaxonomyEvidence
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Independent taxonomy evidence.
+  ssu:
+    range: SsuLocus
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Assembly-wide ribosomal RNA loci.
+  viruses:
+    range: VirusCall
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Assembly-wide viral calls.
+  phenotypes:
+    range: Phenotype
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Raw and interpreted phenotype predictions.
+  genes:
+    range: Gene
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Predicted genes.
+  annotations:
+    range: FunctionalAnnotation
+    multivalued: true
+    inlined: true
+    inlined_as_list: true
+    description: Functional database hits.
+
+classes:
+  ScopedRecord:
+    abstract: true
+    description: Record identified within one sample and workflow run.
+    slots:
+      - sample_id
+      - run_id
+    slot_usage:
+      sample_id:
+        required: true
+      run_id:
+        required: true
+  ResultRecord:
+    abstract: true
+    is_a: ScopedRecord
+    description: Stage-produced record tied to its exact output artifact.
+    slots:
+      - stage_id
+      - artifact_id
+    slot_usage:
+      stage_id:
+        required: true
+      artifact_id:
+        required: true
+  Sample:
+    description: Biological sample represented in the workflow.
+    slots:
+      - sample_id
+      - description
+      - genetic_code
+    slot_usage:
+      genetic_code:
+        description: Optional translation-table constraint for routed prokaryotic bins only. Eukaryotic and viral calls retain their own translation tables.
+      sample_id:
+        identifier: true
+        required: true
+  Run:
+    is_a: ScopedRecord
+    description: One workflow execution for a sample.
+    slots:
+      - platform
+      - rna_technology
+      - basecaller
+      - basecaller_model
+      - library_prep
+    slot_usage:
+      run_id:
+        identifier: true
+      platform:
+        required: true
+  Artifact:
+    is_a: ScopedRecord
+    description: Checksummed input or output file.
+    slots:
+      - artifact_id
+      - kind
+      - path
+      - sha256
+      - size_bytes
+      - producer_stage_id
+    slot_usage:
+      artifact_id:
+        identifier: true
+        required: true
+      kind:
+        required: true
+      path:
+        required: true
+      sha256:
+        required: true
+      size_bytes:
+        required: true
+  Stage:
+    is_a: ScopedRecord
+    description: Workflow-stage status and exact software/database provenance.
+    slots:
+      - stage_id
+      - name
+      - status
+      - status_reason
+      - notes
+      - tool_name
+      - tool_version
+      - command
+      - database_name
+      - database_version
+      - database_sha256
+      - input_artifact_ids
+      - expected_result_keys
+    slot_usage:
+      stage_id:
+        identifier: true
+        required: true
+      name:
+        required: true
+      status:
+        required: true
+      tool_name:
+        required: true
+      tool_version:
+        required: true
+      input_artifact_ids:
+        required: true
+      expected_result_keys:
+        required: true
+  ReadStatistics:
+    is_a: ResultRecord
+    description: Read counts and base counts before and after filtering.
+    slots:
+      - record_id
+      - total_reads
+      - total_bases
+      - retained_reads
+      - retained_bases
+      - rejected_reads
+      - rejected_bases
+    slot_usage:
+      record_id:
+        identifier: true
+        required: true
+      total_reads:
+        required: true
+      total_bases:
+        required: true
+      retained_reads:
+        required: true
+      retained_bases:
+        required: true
+      rejected_reads:
+        required: true
+      rejected_bases:
+        required: true
+  Assembly:
+    is_a: ResultRecord
+    description: Whole-assembly summary.
+    slots:
+      - assembly_id
+      - assembly_length_bp
+      - contig_count
+      - n50_bp
+      - gc_fraction
+    slot_usage:
+      assembly_id:
+        identifier: true
+        required: true
+      assembly_length_bp:
+        required: true
+      contig_count:
+        required: true
+      gc_fraction:
+        required: true
+  Contig:
+    is_a: ResultRecord
+    description: Assembly contig and mapping summary.
+    slots:
+      - contig_id
+      - assembly_id
+      - length_bp
+      - gc_fraction
+      - mean_depth_x
+      - coverage_artifact_id
+      - is_circular
+    slot_usage:
+      contig_id:
+        identifier: true
+        required: true
+      assembly_id:
+        required: true
+      length_bp:
+        required: true
+      gc_fraction:
+        required: true
+  Bin:
+    is_a: ResultRecord
+    description: QuickBin output retained with its evidence-routing class.
+    slots:
+      - bin_id
+      - assembly_id
+      - candidate_class
+    slot_usage:
+      bin_id:
+        identifier: true
+        required: true
+      assembly_id:
+        required: true
+      candidate_class:
+        required: true
+  Membership:
+    is_a: ResultRecord
+    description: Assignment of one whole contig to one bin.
+    slots:
+      - membership_id
+      - bin_id
+      - contig_id
+    slot_usage:
+      membership_id:
+        identifier: true
+        required: true
+      bin_id:
+        required: true
+      contig_id:
+        required: true
+  QualityAssessment:
+    is_a: ResultRecord
+    description: Tool-specific QC estimates; unavailable numeric measurements stay absent even when a categorical reliability label is literally unavailable.
+    slots:
+      - record_id
+      - target_kind
+      - target_id
+      - completeness_percent
+      - contamination_percent
+      - completeness_basis
+      - contamination_basis
+      - completeness_query_support
+      - completeness_model_reliability
+      - contamination_query_support
+      - contamination_model_reliability
+      - checkeuk_pfam_ridge_completeness_percent
+      - checkeuk_bom_completeness_percent
+      - checkeuk_inventory74_present
+      - checkeuk_expected_markers_present
+      - checkeuk_expected_markers_total
+      - checkeuk_pfam1085_distinct
+    slot_usage:
+      record_id:
+        identifier: true
+        required: true
+      target_kind:
+        required: true
+      target_id:
+        required: true
+  TaxonomyEvidence:
+    is_a: ResultRecord
+    description: One tool-specific taxonomic assertion, retained independently.
+    slots:
+      - record_id
+      - target_kind
+      - target_id
+      - rank
+      - taxon_name
+      - taxon_id
+      - score
+      - lineage_confidence
+    slot_usage:
+      record_id:
+        identifier: true
+        required: true
+      target_kind:
+        required: true
+      target_id:
+        required: true
+      rank:
+        required: true
+      taxon_name:
+        required: true
+  SsuLocus:
+    is_a: ResultRecord
+    description: Assembly-wide SSU locus with one-based inclusive coordinates.
+    slots:
+      - record_id
+      - contig_id
+      - ssu_type
+      - start
+      - end
+      - strand
+      - hit_accession
+      - reference_identifiers
+      - reference_source
+      - reference_versions
+      - reference_taxonomy
+      - taxon_name
+      - taxonomy_assignment_method
+      - identity_percent
+      - query_coverage_percent
+    slot_usage:
+      record_id:
+        identifier: true
+        required: true
+      contig_id:
+        required: true
+      ssu_type:
+        required: true
+      start:
+        required: true
+      end:
+        required: true
+      strand:
+        required: true
+  VirusCall:
+    is_a: ResultRecord
+    description: Assembly-wide viral or proviral call with one-based inclusive coordinates.
+    slots:
+      - record_id
+      - contig_id
+      - start
+      - end
+      - strand
+      - score
+      - viral_taxon
+    slot_usage:
+      record_id:
+        identifier: true
+        required: true
+      contig_id:
+        required: true
+      start:
+        required: true
+      end:
+        required: true
+      strand:
+        required: true
+  Phenotype:
+    is_a: ResultRecord
+    description: Raw and thresholded phenotype prediction with applicability retained.
+    slots:
+      - record_id
+      - bin_id
+      - raw_class
+      - raw_score
+      - threshold
+      - passes_threshold
+      - thresholded_class
+      - is_applicable
+      - applicability_reason
+    slot_usage:
+      record_id:
+        identifier: true
+        required: true
+      bin_id:
+        required: true
+      raw_class:
+        required: true
+      raw_score:
+        required: true
+      threshold:
+        required: true
+      passes_threshold:
+        required: true
+      is_applicable:
+        required: true
+  Gene:
+    is_a: ResultRecord
+    description: Protein-coding model with one-based inclusive contig coordinates; BRAKER isoforms have separate records.
+    slots:
+      - gene_id
+      - contig_id
+      - bin_id
+      - start
+      - end
+      - strand
+      - phase
+      - genetic_code
+    slot_usage:
+      gene_id:
+        identifier: true
+        required: true
+      contig_id:
+        required: true
+      start:
+        required: true
+      end:
+        required: true
+      strand:
+        required: true
+      genetic_code:
+        required: true
+  FunctionalAnnotation:
+    is_a: ResultRecord
+    description: Functional database hit; protein-domain coordinates are one-based inclusive when reported.
+    slots:
+      - annotation_id
+      - gene_id
+      - database_name
+      - database_version
+      - accession
+      - function_name
+      - start
+      - end
+      - score
+      - evalue
+    slot_usage:
+      annotation_id:
+        identifier: true
+        required: true
+      gene_id:
+        required: true
+      database_name:
+        required: true
+      database_version:
+        required: true
+      accession:
+        required: true
+  MetadataBundle:
+    tree_root: true
+    description: Complete validated input to one catalog build.
+    slots:
+      - schema_version
+      - workflow_name
+      - workflow_version
+      - source_revision
+      - samples
+      - runs
+      - artifacts
+      - stages
+      - read_stats
+      - assemblies
+      - contigs
+      - bins
+      - memberships
+      - qc
+      - taxonomy
+      - ssu
+      - viruses
+      - phenotypes
+      - genes
+      - annotations
+    slot_usage:
+      schema_version:
+        required: true
+      workflow_name:
+        required: true
+      workflow_version:
+        required: true
+      source_revision:
+        required: true
+      samples:
+        required: true
+      runs:
+        required: true
+      artifacts:
+        required: true
+      stages:
+        required: true
+      read_stats:
+        required: true
+      assemblies:
+        required: true
+      contigs:
+        required: true
+      bins:
+        required: true
+      memberships:
+        required: true
+      qc:
+        required: true
+      taxonomy:
+        required: true
+      ssu:
+        required: true
+      viruses:
+        required: true
+      phenotypes:
+        required: true
+      genes:
+        required: true
+      annotations:
+        required: true

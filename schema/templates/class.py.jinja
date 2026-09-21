@@ -1,0 +1,5 @@
+class {{ name }}({{ bases if bases is string else bases | join(', ') }}):
+    """Validated {{ name }} record."""
+{% for attribute in attributes.values() %}
+    {{ attribute }}
+{% endfor %}

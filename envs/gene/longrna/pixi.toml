@@ -1,0 +1,11 @@
+[workspace]
+name = "protist-braker3-longrna"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+preview = ["pixi-build"]
+
+[dependencies]
+braker3-longrna = { path = "package" }
+
+[tasks]
+check-cli = "braker3-longrna-preflight"

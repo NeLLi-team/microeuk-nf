@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+[[ -x "$root/.pixi/envs/default/bin/python" ]] || {
+    echo 'Install the default Pixi environment before running protist-meta.' >&2
+    exit 2
+}
+export PIXI_NO_INSTALL=true PIXI_FROZEN=true
+exec pixi run --as-is --manifest-path "$root/pixi.toml" python -m protist_meta.cli "$@"

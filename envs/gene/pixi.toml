@@ -1,0 +1,16 @@
+[workspace]
+name = "protist-gene-calling"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[feature.repeatmasker.dependencies]
+repeatmodeler = "==2.0.9"
+repeatmasker = "==4.2.4"
+famdb = "==3.0.0"
+
+[feature.prodigal-gv.dependencies]
+prodigal-gv = "==2.11.0"
+
+[environments]
+repeatmasker = { features = ["repeatmasker"], no-default-feature = true }
+prodigal-gv = { features = ["prodigal-gv"], no-default-feature = true }

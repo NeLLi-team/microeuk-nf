@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "protist-meta"
+version = "0.1.0"
+description = "Validated results for long-read protist metagenomes"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.13,<3", "pyyaml>=6,<7"]
+
+[project.scripts]
+protist-meta = "protist_meta.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/protist_meta"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

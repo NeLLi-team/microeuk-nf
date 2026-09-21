@@ -1,0 +1,16 @@
+{
+  "braker": {
+    "repository": "https://github.com/Gaius-Augustus/BRAKER.git",
+    "commit": "@BRAKER_COMMIT@",
+    "version": "3.0.8"
+  },
+  "genemark_etp": {
+    "repository": "https://github.com/KatharinaHoff/GeneMark-ETP.git",
+    "commit": "@ETP_COMMIT@",
+    "branch_at_investigation": "longread_experimental_dev",
+    "version": "1.02"
+  },
+  "prothint": {
+    "embedded_version": "2.6.0"
+  }
+}

@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/prefix-dev/recipe-format/main/schema.json
+
+context:
+  version: "3.0.8"
+  braker_commit: "35280d0c2f56dde026ab346c0255740c11ab80a1"
+  etp_commit: "64a69cbc11e15d51779da021d794cbe9c6d695a7"
+  prothint_commit: "9e5e3162c2e924a2b0ad51c9bc7a1526f1b28fd0"
+
+package:
+  name: braker3-longrna
+  version: ${{ version }}
+
+source:
+  - git: https://github.com/Gaius-Augustus/BRAKER.git
+    rev: ${{ braker_commit }}
+    target_directory: BRAKER
+  - git: https://github.com/KatharinaHoff/GeneMark-ETP.git
+    rev: ${{ etp_commit }}
+    target_directory: ETP
+  - url: https://codeload.github.com/gatech-genemark/ProtHint/tar.gz/${{ prothint_commit }}
+    sha256: 0fa15a8d28e39c4c7f44ae5cc9b5de4ce3576b796f1e36ec6b808a9d20111b97
+    target_directory: ProtHint-license
+
+build:
+  number: 0
+  string: longrna_0
+  script:
+    - bash $RECIPE_DIR/build.sh
+
+requirements:
+  build:
+    - bash
+    - coreutils
+    - grep
+    - patchelf
+  run:
+    - augustus >=3.5.0
+    - bamtools >=2.5.1
+    - bash
+    - bedtools ==2.30.0
+    - biopython
+    - blast >=2.12.0
+    - cdbtools >=0.99
+    - compleasm
+    - coreutils
+    - diamond >=2.1.6
+    - exonerate >=2.2.0
+    - findutils
+    - gawk
+    - gffread ==0.12.7
+    - genomethreader >=1.7.0
+    - hisat2 ==2.2.1
+    - grep
+    - gzip
+    - makehub
+    - perl
+    - perl-app-cpanminus
+    - perl-class-data-inheritable
+    - perl-data-dumper
+    - perl-exception-class
+    - perl-file-homedir
+    - perl-file-spec
+    - perl-file-which
+    - perl-hash-merge
+    - perl-logger-simple
+    - perl-math-utils
+    - perl-mce
+    - perl-module-load-conditional
+    - perl-parallel-forkmanager
+    - perl-posix
+    - perl-scalar-list-utils
+    - perl-scalar-util-numeric
+    - perl-test-pod
+    - perl-yaml
+    - perl-yaml-libyaml
+    - python >=3.7
+    - samtools >=1.16.1
+    - spaln >=2.4.8
+    - stringtie ==2.2.1
+    - tsebra
+    - which
+
+tests:
+  - script:
+      - braker.pl --version | grep -F "braker.pl version 3.0.8"
+      - prothint.py --version | grep -F "prothint.py 2.6.0"
+      - braker3-longrna-preflight
+
+about:
+  homepage: https://github.com/Gaius-Augustus/BRAKER
+  repository: https://github.com/KatharinaHoff/GeneMark-ETP
+  license: Artistic-1.0 AND CC-BY-NC-SA-4.0 AND LicenseRef-ProtHint-Academic
+  license_file:
+    - BRAKER/LICENSE.TXT
+    - ETP/License-Creative-Commons-Attribution-NonCommercial-ShareAlike-4.0-International.txt
+    - ProtHint-license/LICENSE
+  summary: Pinned BRAKER3 and experimental long-read GeneMark-ETP sources
+  description: |
+    Local-only package for BRAKER3 with the experimental GeneMark-ETP
+    long-read branch. GeneMark-ETP is licensed CC BY-NC-SA 4.0. ProtHint
+    permits internal research use under its academic license. Do not publish
+    this package.

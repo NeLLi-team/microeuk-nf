@@ -1,0 +1,2 @@
+sample_id	platform	reads	assembly	rna_reads	rna_platform	protein_reference	protein_lineage	genetic_code	softmasked	basecaller	basecaller_model	library_prep
+example	ONT	raw/example.fastq.gz						auto				

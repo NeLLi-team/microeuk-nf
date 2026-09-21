@@ -1,0 +1,135 @@
+# python-style: default ruff configuration.
+#
+# scripts/check.py passes this file to ruff only when the project has no ruff
+# configuration of its own (pyproject.toml [tool.ruff], ruff.toml, .ruff.toml).
+# A project's config always wins, so the same gate and CI agree.
+#
+# To adopt it in a project: copy this file to the project root as ruff.toml,
+# or move the sections under [tool.ruff] in pyproject.toml. Then set
+# target-version to the project's minimum Python and list its own packages
+# under [lint.isort] known-first-party.
+
+target-version = "py312"
+line-length = 88
+indent-width = 4
+
+extend-exclude = [
+  "build",
+  "dist",
+  "*.egg-info",
+  ".pixi",
+  "data",
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+skip-magic-trailing-comma = false
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+[lint]
+select = [
+  "F",       # pyflakes: undefined names, unused imports and variables
+  "E", "W",  # pycodestyle: what the formatter cannot fix (long strings, comments)
+  "I",       # isort: import order
+  "N",       # pep8-naming
+  "D",       # pydocstyle (Google convention, see below)
+  "UP",      # pyupgrade: modern syntax for the target version
+  "ANN",     # annotations on every signature
+  "ASYNC",   # blocking calls inside async functions
+  "B",       # bugbear: likely bugs and design smells
+  "A",       # shadowed builtins
+  "C4",      # comprehensions
+  "C90",     # mccabe cyclomatic complexity
+  "DTZ",     # naive datetimes
+  "T10",     # leftover debugger calls
+  "EXE",     # shebang and executable bit agree
+  "ISC",     # implicit string concatenation
+  "ICN",     # import aliases (np, pd, pl, plt)
+  "LOG", "G",  # logging usage and lazy formatting
+  "PIE",     # misplaced or redundant statements
+  "T20",     # pprint left in code (T201 print is ignored below)
+  "PYI",     # stub files
+  "PT",      # pytest style
+  "Q",       # quotes
+  "RSE",     # raise statements
+  "RET",     # return consistency and flat control flow
+  "SLF",     # private member access from outside the class
+  "SIM",     # simplifications
+  "TID",     # tidy imports
+  "TC004", "TC005", "TC010",  # runtime use of type-checking-only imports
+  "ARG",     # unused arguments
+  "PTH",     # pathlib instead of os.path
+  "ERA",     # commented-out code
+  "PD",      # pandas idioms
+  "PGH",     # blanket noqa and type-ignore comments
+  "PL",      # pylint: complexity limits, common mistakes
+  "TRY",     # exception handling idioms
+  "FLY",     # static string joins
+  "NPY",     # numpy: modern random API, deprecated aliases
+  "PERF",    # performance anti-patterns
+  "FURB",    # modern idioms
+  "RUF",     # ruff-specific: ambiguous unicode, mutable class defaults, unused noqa
+  "FBT",     # boolean positional arguments
+  "BLE",     # blind except
+  "YTT",     # sys.version comparisons
+  # A small security subset that matches the shared agent rules.
+  "S102", "S105", "S106", "S107", "S307", "S501", "S602", "S604", "S608",
+]
+ignore = [
+  "D104",    # package docstrings: the package README carries this
+  "D105",    # magic method docstrings
+  "D107",    # __init__ docstrings: the class docstring covers construction
+  "ISC001",  # conflicts with the formatter
+  "PLR2004", # magic values: too noisy for small comparisons; name real constants anyway
+  "TRY003",  # long messages in raise statements are fine
+  "FBT003",  # boolean positional in calls to third-party APIs
+  "PD011",   # .values: false positives on dicts
+  "T201",    # print: standalone scripts print their output by design; logging for diagnostics is a review rule
+  "TRY400",  # logging.error inside except: a CLI boundary logs one line on purpose
+  "PT009", "PT027",  # unittest-style files stay internally consistent
+]
+unfixable = [
+  "ERA001",  # a human decides whether commented-out code goes
+  "F841",    # an unused variable may be a bug, not noise
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["D", "ANN", "S101", "SLF001", "ARG", "FBT", "PLR0913", "PLR0915"]
+"**/test_*.py" = ["D", "ANN", "S101", "SLF001", "ARG", "FBT", "PLR0913", "PLR0915"]
+"**/conftest.py" = ["D", "ANN", "ARG"]
+"**/__init__.py" = ["D104", "F401"]
+"**/*.ipynb" = ["D", "ANN", "E402", "ERA", "B018", "F401", "PLR0913"]
+
+[lint.pydocstyle]
+convention = "google"
+ignore-decorators = ["typing.overload"]
+
+[lint.flake8-annotations]
+mypy-init-return = true
+allow-star-arg-any = true
+suppress-dummy-args = true
+
+[lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[lint.isort]
+combine-as-imports = true
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50

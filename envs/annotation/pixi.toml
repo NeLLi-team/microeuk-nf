@@ -1,0 +1,11 @@
+[workspace]
+name = "protist-annotation"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[feature.eggnog.dependencies]
+eggnog-mapper = "==2.1.15"
+python = "3.11.*"
+
+[environments]
+eggnog = { features = ["eggnog"], no-default-feature = true }

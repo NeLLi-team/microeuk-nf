@@ -1,0 +1,24 @@
+site_name: protist-meta-nf
+site_description: Long-read metagenome workflow development and validation
+theme:
+  name: material
+  palette:
+    scheme: default
+nav:
+  - Overview: index.md
+  - Design: explanation/design.md
+  - Run on Dori: how-to/run-on-dori.md
+  - Inputs: reference/inputs.md
+  - Install Dfam: how-to/install-dfam.md
+  - Report: reference/report.md
+plugins:
+  - search
+  - mkdocs-jupyter:
+      execute: false
+      include_source: true
+markdown_extensions:
+  - tables
+  - attr_list
+  - md_in_html
+extra_css:
+  - stylesheets/extra.css
