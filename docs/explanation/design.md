@@ -30,6 +30,9 @@ labels stay in the evidence table but do not establish a eukaryotic route or
 veto a viral route. A eukaryotic route requires a resolved CheckEUK lineage
 plus GVClass eukaryotic support or a linked eukaryotic SSU locus.
 
+Route labels select downstream analyses. They do not establish final taxonomy
+or MAG acceptance.
+
 The evidence ledger retains every linked geNomad call. Only whole-contig calls
 support a viral route for the bin. Integrated provirus intervals describe
 elements within a host; they do not supply whole-bin viral support. When a host
@@ -49,8 +52,8 @@ When no called proteins remain, functional annotation is skipped with
 `no_called_proteins` and the catalog retains the original contigs.
 
 LinkML defines the catalog record contract. Generated Pydantic models validate
-values, followed by cross-record checks for identifiers, relationships, coordinate
-bounds, and expected output keys. SQLite publication is atomic. The collaborator
+values, followed by cross-record checks for identifiers, relationships,
+coordinate bounds, and expected output keys. SQLite publication is atomic. The
 report reads the validated database and records its identity.
 
 The tests must distinguish process wiring, parser fixtures, actual tool execution,

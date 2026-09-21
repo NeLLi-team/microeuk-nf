@@ -1,24 +1,53 @@
-# protist-meta-nf
+# microeuk-nf
 
-Nextflow workflow under development for ONT and PacBio HiFi protist enrichment
-metagenomes. The requested analysis includes assembly, binning, domain-specific
-quality assessment, taxonomy, RNA-supported gene calling, functional annotation,
-and a validated SQLite catalog with an executed notebook and HTML report.
+microeuk-nf is a Nextflow workflow for ONT and PacBio HiFi metagenomes that
+contain microbial eukaryotes, bacteria, archaea, and viruses. It performs read
+QC, assembly, binning, independent quality and taxonomy analyses, gene calling,
+and functional annotation. Quality, taxonomy, RNA, and protein evidence
+determine the gene-calling branches. The workflow writes a validated SQLite
+catalog, an executed notebook, and an HTML report.
 
-Pixi manages Nextflow, Java, and the scientific tool environments.
-Reference databases are declared in `conf/databases.yaml`; sample paths are
-resolved relative to the input TSV. The workflow does not modify raw reads.
+![Workflow schematic from long-read input through assembly, bin characterization, evidence-based routing, gene calling, annotation, and catalog and report publication](docs/assets/workflow.svg)
 
-See [validation status](SUMMARY.md) before running an analysis,
-[run on Dori](docs/how-to/run-on-dori.md) for submission and resume commands,
-and [design](docs/explanation/design.md) for the scientific contract.
+*Candidate routes guide downstream analysis; they are not final taxonomy or
+accepted MAG labels.*
 
-- `main.nf` and `modules/`: Nextflow process graph and tool invocations.
-- `pixi.toml`, `pixi.lock`, and `envs/`: runtime and tool environments.
-- `schema/catalog.yaml`: field meanings, units, types, and record relationships.
-- `src/protist_meta/`: input validation, result ingestion, SQLite, and reports.
-- `data/samples.example.tsv`: input column contract; replace example paths.
-- `docs/`: workflow reference and operator documentation.
+The publication name is `microeuk-nf`. Established internal identifiers remain
+`protist-meta-nf` for the Nextflow and Pixi workspaces, `protist-meta` for the
+CLI, `protist_meta` for the Python package, and `protist-meta.sqlite` for the
+catalog filename.
 
-Run outputs and working notes are excluded from Git. The source repository has
-no configured remote or deployment workflow.
+## Clone and prepare
+
+```bash
+git clone git@github.com:nelli-team/microeuk-nf.git
+cd microeuk-nf
+```
+
+The clone is not a standalone full installation. `conf/databases.yaml` points to
+local reference databases, sibling Pixi workspaces for CheckM1, CheckM2,
+GTDB-Tk, Symclatron, geNomad, and CheckV, and application workspaces for
+CheckEUK, GVClass, and SSUextract. Configure those paths for the target Dori
+filesystem before a full run. The repository installers also retain fixed local
+eggNOG and InterProScan setup paths.
+
+Follow [Run and resume on Dori](docs/how-to/run-on-dori.md) for the ordered
+environment setup and submission commands. Copy
+[`data/samples.example.tsv`](data/samples.example.tsv) to a file of your choice,
+edit its single row, and keep all 13 columns. Input paths are resolved relative
+to that copied sample sheet.
+
+## Documentation
+
+- [Source-scoped validation](SUMMARY.md) records accepted runs and scientific
+  limits.
+- [Scientific design](docs/explanation/design.md) explains the evidence and
+  routing rules.
+- [Input and dependency contract](docs/reference/inputs.md) defines the sample
+  fields and local dependency boundary.
+- [Report API](docs/reference/report.md) describes catalog reporting and
+  interpretation.
+
+Generated run outputs, validation receipts, and working notes are local
+artifacts excluded from Git. The repository contains the reviewed source and
+documentation; it does not claim a hosted documentation site.

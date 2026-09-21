@@ -11,8 +11,8 @@ completion audit.
 **Driver.** Job 26174581 ran sample `X0341_p01` as
 `run_823b4b2ea3996922` at source revision
 `sha256:4f734784d5e5623955354126ff3a8e972f6047c126d5b1caffa951246322581e`.
-The production wrapper and exact commands are recorded in
-`../../tasks/METHODS.md`.
+The production wrapper, exact commands, and receipts remain in the local
+`tasks/` working records, which are excluded from Git.
 
 **QC result.** The job completed with exit 0:0 in 11:26:56. All 17 initial
 Nextflow tasks completed, and all 17 were cached on resume. Inspection passed
@@ -23,13 +23,13 @@ taxonomy rows, 57 SSU loci, 29 viruses, 143 phenotypes, 90,992 genes, and
 1,680,663 annotations. The notebook executed eight code cells with three
 figures and no errors; the HTML export and visual review passed.
 
-**Interpretation.** The current ONT workflow passed full scientific and delivery
-acceptance. All six eukaryotic analysis bins lacked compatible RNA or protein
-evidence, so their RNA and BRAKER stages remain explicit pending scientific
-states rather than positive gene-call evidence. The separate eukaryotic case
-retains the positive RNA-supported BRAKER proof. SSU assignments remain
-`Unclassified` without runtime calibration, and GVClass evidence remains
-exploratory.
+**Interpretation.** The current ONT source revision passed its recorded
+scientific and delivery acceptance checks. All six eukaryotic analysis bins
+lacked compatible RNA or protein evidence, so their RNA and BRAKER3 stages
+remain pending scientific states rather than positive gene-call evidence. The
+separate eukaryotic case supplies positive RNA-supported BRAKER3 evidence. SSU
+assignments remain `Unclassified` without runtime calibration, and GVClass
+evidence remains exploratory.
 
-Repository documentation is the reviewed delivery source. No hosted wiki
-deployment is implied.
+Repository documentation is the reviewed delivery source. No hosted
+documentation deployment is implied.

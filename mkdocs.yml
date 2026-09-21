@@ -1,16 +1,27 @@
-site_name: protist-meta-nf
-site_description: Long-read metagenome workflow development and validation
+site_name: microeuk-nf
+site_description: Long-read metagenome workflow for microbial eukaryote analysis
+repo_name: nelli-team/microeuk-nf
+repo_url: https://github.com/nelli-team/microeuk-nf
+edit_uri: edit/main/docs/
 theme:
   name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
   palette:
     scheme: default
 nav:
   - Overview: index.md
-  - Design: explanation/design.md
-  - Run on Dori: how-to/run-on-dori.md
-  - Inputs: reference/inputs.md
-  - Install Dfam: how-to/install-dfam.md
-  - Report: reference/report.md
+  - Explanation:
+      - Scientific design: explanation/design.md
+  - How-to guides:
+      - Run and resume on Dori: how-to/run-on-dori.md
+      - Install Dfam: how-to/install-dfam.md
+  - Reference:
+      - Inputs and dependencies: reference/inputs.md
+      - Report API: reference/report.md
 plugins:
   - search
   - mkdocs-jupyter:

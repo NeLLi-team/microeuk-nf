@@ -1,56 +1,144 @@
-# Run and resume on Dori
+# Run and resume one sample on Dori
 
-Use `scripts/run-allocation.slurm` to run one sample in one Dori allocation.
-Nextflow uses its local executor inside that allocation. The full workflow has
-17 processes; the core workflow has seven. Process labels set CPU and memory
-requests in `conf/resources.config`. The launcher reserves 24 GB for Nextflow
-and allocation overhead and gives the remaining memory to the local executor.
+`scripts/run-allocation.slurm` runs one sample inside one Dori allocation.
+Nextflow uses its local executor with `process.maxForks = 1`. The full workflow
+has 17 processes; the core workflow has seven. Process labels in
+`conf/resources.config` set per-process CPU, memory, and time requests. The
+launcher reserves 24 GB for Nextflow and allocation overhead and gives the
+remaining memory to the local executor.
 
-## Prerequisites
+## Clone the repository
 
-- Run from a Dori login node in the workflow repository. The host must provide
-  `/bin/bash` for Nextflow's outer task launcher.
-- Prepare one sample row using the [input contract](../reference/inputs.md).
-- Install the locked Pixi environments in Slurm, including Nextflow and Java.
-  Finish `scripts/bootstrap.slurm` before running `scripts/install-tools.slurm`,
-  `scripts/install-custom.slurm` or `scripts/install-dfam.slurm`.
-  Register the reference paths in
-  `conf/databases.yaml`. Referenced application workspaces must also be installed.
-- Check `SUMMARY.md` in the repository for validation limits before production use.
+Run these commands from a Dori login node:
 
-The launcher validates registry entries and installed executable paths. Runtime
-commands use `pixi run --as-is`; they do not install missing software. Environment
-installation and reference setup must finish before submission.
+```bash
+git clone git@github.com:nelli-team/microeuk-nf.git
+cd microeuk-nf
+project_root=$PWD
+mkdir -p "$project_root/tasks/logs"
+```
 
-## Submit a sample
+The host must provide Pixi, Slurm, and `/bin/bash`. The operating-system Bash
+starts the bootstrap, which re-executes inside the repository's root Pixi Bash.
+Nextflow's outer task launcher also invokes host `/bin/bash`. Nextflow, Java,
+Python, the inner process shell, and all workflow tools are Pixi dependencies.
 
-1. Set the repository, sample sheet and a new run directory. Replace the example
-   sample sheet with your own. The run directory must not exist for a fresh run.
+## Prepare environments and references
+
+The repository does not provide a standalone full installation. Configure
+`conf/databases.yaml` for the target clone location and filesystem. Its relative
+paths are resolved from `conf/`, so moving the clone can change the referenced
+targets.
+
+Core mode needs the repository environments and the registered QuickClade
+reference. Full mode also needs these external workspaces:
+
+- the CheckM1, CheckM2, GTDB-Tk, and Symclatron environments in
+  `checkm_manifest`;
+- the geNomad and CheckV environments in `viral_manifest` and
+  `checkv_manifest`; and
+- the CheckEUK, GVClass, and SSUextract application workspaces.
+
+Install those external workspaces and all registered reference resources
+separately. The repository scripts do not provision them.
+
+Before every setup or analysis submission wave, check the shared queue:
+
+```bash
+squeue -M perceus-00 -u fschulz --array
+```
+
+Count standalone allocations, helpers, retries, and array elements toward the
+limit of 100 planned tasks. Submit at most 20 new tasks per wave. Allow at most
+`min(30, max(0, 80 - other_running))` running tasks for this workflow,
+including pending tasks that can start. When the allowance is zero, wait before
+submitting. The setup scripts and allocation launcher do not enforce these
+shared limits.
+
+Submit the repository setup jobs in order, waiting for each job to succeed
+before submitting the next:
+
+```bash
+receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
+  -p dori --qos=jgi_normal --chdir="$project_root" \
+  scripts/bootstrap.slurm) || exit 1
+job_id=${receipt%%;*}
+[[ $job_id =~ ^[0-9]+$ ]] || exit 1
+printf '%s\n' "$receipt" > "$project_root/tasks/bootstrap-${job_id}.receipt"
+```
+
+If the registered Dfam 4.0 directory is absent, submit
+`scripts/install-dfam.slurm` next. Skip this installer when that release is
+already present and valid because it refuses to replace an existing release.
+See [Install Dfam](install-dfam.md) for its checks.
+
+After Dfam is available, install the remaining repository tool environments,
+then the custom BRAKER3 and InterProScan packages. Wait for the tool job to
+succeed before submitting the custom-package job.
+
+```bash
+receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
+  -p dori --qos=jgi_normal --chdir="$project_root" \
+  scripts/install-tools.slurm) || exit 1
+job_id=${receipt%%;*}
+[[ $job_id =~ ^[0-9]+$ ]] || exit 1
+printf '%s\n' "$receipt" > "$project_root/tasks/tools-${job_id}.receipt"
+```
+
+```bash
+receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
+  -p dori --qos=jgi_normal --chdir="$project_root" \
+  scripts/install-custom.slurm) || exit 1
+job_id=${receipt%%;*}
+[[ $job_id =~ ^[0-9]+$ ]] || exit 1
+printf '%s\n' "$receipt" > "$project_root/tasks/custom-${job_id}.receipt"
+```
+
+The last two scripts use fixed local paths. `install-tools.slurm` probes a
+fixed eggNOG data directory. `install-custom.slurm` uses fixed InterProScan data
+and smoke-test paths. The InterProScan recipe also requires the local source
+distribution named by its source hash manifests and
+`.nellidb_version/version.txt` metadata for version `5.76-107.0` and MD5
+`8c9a8b153e527f8cfc7bf24ee1652d78`. Changing only
+`conf/databases.yaml` does not redirect these setup checks.
+
+The allocation launcher validates every enabled registry entry and executable.
+Runtime commands set `PIXI_NO_INSTALL=true` and `PIXI_FROZEN=true` and use
+`pixi run --as-is`. They do not install missing software or update locks.
+
+## Prepare one sample
+
+Copy the 13-field template to a file of your choice and edit its single example
+row. The allocation launcher currently accepts exactly one sample row. Input
+paths are resolved relative to the copied sample sheet.
+
+```bash
+samples=/absolute/path/to/run-inputs/samples.tsv
+mkdir -p "$(dirname "$samples")"
+cp "$project_root/data/samples.example.tsv" "$samples"
+# Edit "$samples" before submission.
+```
+
+See the [input and dependency contract](../reference/inputs.md) for field
+meanings and evidence-pair requirements.
+
+## Submit a fresh run
+
+1. Choose a new run directory. It must not exist before a fresh run.
 
    ```bash
-   cd /clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/08protists/protist-meta-nf
-   project_root=$PWD
-   samples="$project_root/data/samples.tsv"
    run_dir="$project_root/results/my-sample"
-   mkdir -p tasks/logs
    ```
 
-2. Check the shared queue and the workflow's allocation ledger before each wave.
-   Count standalone allocations, helpers, retries and array elements toward the
-   limit of 100 planned tasks. Submit at most 20 new tasks per wave. Allow at most
-   `min(30, max(0, 80 - other_running))` running tasks for this workflow.
-   Account for pending tasks in other workflows that may start. Coordinate with
-   other agents and projects. When
-   the allowance is zero, wait before submitting. These are operator checks;
-   the launcher does not enforce shared queue limits.
+2. Repeat the shared queue and task-budget check from the setup section. Do not
+   submit while the workflow's running-task allowance is zero.
 
    ```bash
    squeue -M perceus-00 -u fschulz --array
    ```
 
-3. Submit the full workflow with 32 CPUs, 384 GB and up to 72 hours. Capture the
-   job identifier only after `sbatch` succeeds. Record it with the script, sample
-   and log paths in the run ledger.
+3. Submit full mode with 32 CPUs, 384 GB, and up to 72 hours. Capture the job
+   identifier only after `sbatch` succeeds.
 
    ```bash
    receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
@@ -59,47 +147,49 @@ installation and reference setup must finish before submission.
      scripts/run-allocation.slurm "$samples" "$run_dir" full) || exit 1
    job_id=${receipt%%;*}
    [[ $job_id =~ ^[0-9]+$ ]] || exit 1
-   printf '%s\n' "$receipt" > "tasks/allocation-${job_id}.receipt"
+   printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
    ```
 
-   For core mode, replace `full` with `core` and use at least 216 GB. Both modes
-   require at least 32 CPUs. Use a longer approved QOS if the required allocation
-   time exceeds the normal-QOS limit. The allocation walltime covers the entire
-   graph, rather than one process.
+   For core mode, replace `full` with `core` and request at least 216 GB.
+   Both modes require at least 32 CPUs. Use `--qos=jgi_long` when the required
+   walltime exceeds the verified normal-QOS limit. The allocation walltime
+   covers the full process graph.
 
-4. Inspect logs and accounting. Routine scheduler polls must be at least
-   60 seconds apart. Match the job's working directory and name before
-   attributing a result to this run.
+4. Inspect logs and accounting. Keep routine scheduler polls at least 60 seconds
+   apart. Match the job's working directory and name before attributing the
+   result to this run.
 
    ```bash
    sacct -M perceus-00 -j "$job_id" \
      --format=JobID,JobName,State,ExitCode,Elapsed,WorkDir -P
-   tail -n 40 "tasks/logs/allocation-${job_id}.out"
-   tail -n 40 "tasks/logs/allocation-${job_id}.err"
+   tail -n 40 "$project_root/tasks/logs/allocation-${job_id}.out"
+   tail -n 40 "$project_root/tasks/logs/allocation-${job_id}.err"
    ```
 
-5. Inspect the run's `executions/<job-id>.<suffix>/trace.tsv` and published
-   stage manifests. A completed process may record a valid scientific skip.
-   Confirm identifiers, tool-specific evidence and artifact provenance before
-   interpreting the final report. Successful publication writes the following
-   files beneath the run directory:
+5. Inspect `executions/<job-id>.<suffix>/trace.tsv` and the stage
+   manifests below the run directory. A completed process can record a valid
+   scientific skip. Confirm identifiers, evidence, and artifact provenance.
+   A successful run writes:
 
    - `results/catalog/protist-meta.sqlite`
    - `results/report/report.executed.ipynb`
    - `results/report/index.html`
 
-   The notebook must contain saved outputs without cell errors. A scheduler
-   `COMPLETED` state alone does not establish biological correctness.
+   The notebook must contain saved outputs without cell errors. Slurm
+   `COMPLETED` alone does not establish scientific correctness. Review the
+   [source-scoped validation
+   summary](https://github.com/nelli-team/microeuk-nf/blob/main/SUMMARY.md)
+   before interpreting production results.
 
 ## Resume the same run
 
-Retain the run's `launch/`, `work/` and `prepared/` directories. Keep the source,
-sample sheet, registry and referenced Pixi manifests and locks unchanged. The
-launcher rejects an identity mismatch. Start a new run directory after changing
-those inputs; do not edit the saved identity record.
+Retain the run's `launch/`, `work/`, and `prepared/` directories. Keep the
+source, sample sheet, registry, and referenced Pixi manifests and locks
+unchanged. The launcher rejects an identity mismatch. Start a new run directory
+after changing any of those inputs.
 
-Repeat the queue and allocation checks, then submit the same command with the
-fourth argument `resume`:
+Repeat the queue checks, then submit the same run with the fourth argument
+`resume`:
 
 ```bash
 receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
@@ -108,10 +198,9 @@ receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
   scripts/run-allocation.slurm "$samples" "$run_dir" full resume) || exit 1
 job_id=${receipt%%;*}
 [[ $job_id =~ ^[0-9]+$ ]] || exit 1
-printf '%s\n' "$receipt" > "tasks/allocation-${job_id}.receipt"
+printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
 ```
 
-Nextflow reuses eligible completed tasks from the saved session. A fresh
-execution directory records the resume trace and resource reports. Check which
-tasks were cached and validate the published outputs again. See the
-[input reference](../reference/inputs.md) for source-identity limits.
+Nextflow reuses eligible tasks from the saved session. A new execution directory
+records the resume trace and resource reports. Check cached task states and
+validate the published outputs again.

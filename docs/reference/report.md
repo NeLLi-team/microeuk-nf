@@ -6,11 +6,9 @@ protist catalog.
 
 ## Prerequisites
 
-Install the locked Pixi environment before calling the API:
-
-```bash
-pixi install --locked
-```
+Complete the repository bootstrap before calling the API. Run the code through
+the existing locked root Pixi environment; report execution does not install
+packages or create a user-level Jupyter kernel.
 
 The input must be a catalog built by `protist_meta.catalog.build_catalog`. The
 caller must reserve the compute allocation used for notebook execution.
@@ -23,7 +21,7 @@ from pathlib import Path
 from protist_meta.report import build_report
 
 notebook = build_report(
-    Path("results/catalog.sqlite"),
+    Path("results/catalog/protist-meta.sqlite"),
     Path("results/report"),
 )
 ```
@@ -59,7 +57,7 @@ Run nbconvert from the report directory through the project's locked Pixi
 environment:
 
 ```bash
-PROJECT_ROOT=/path/to/protist-meta-nf
+PROJECT_ROOT=/path/to/microeuk-nf
 BUNDLE_ROOT=/path/to/bundle
 cd "$BUNDLE_ROOT/report"
 PIXI_NO_INSTALL=true PIXI_FROZEN=true \
