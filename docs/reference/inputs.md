@@ -34,6 +34,11 @@ not establish that accuracy. Record the caller and exact model when sequencing
 metadata provides them. A model name does not establish the caller software
 version. PacBio HiFi uses `--hifi`.
 
+Every read-based run records raw FASTQ statistics with SeqKit before filtering.
+By default, Chopper retains ONT reads at least 500 bp long with a mean Q score
+of at least 10. SeqKit then records statistics for the filtered reads. De novo
+assembly and DNA mapping use the filtered reads.
+
 An explicit `genetic_code` selects Prodigal-GV single-genome mode, which accepts
 codes 1–6, 9–16, and 21–25. `auto` uses metagenomic mode and retains each
 prediction's reported code.
