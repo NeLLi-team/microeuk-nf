@@ -95,6 +95,43 @@ def test_pending_braker_requires_exact_bin_coverage(tmp_path: Path) -> None:
         collect_records(sample, stages, tmp_path / "bundle.json")
 
 
+def test_collects_checkm2_contamination_above_100(tmp_path: Path) -> None:
+    """Native estimates above 100 survive collection and the catalog unchanged."""
+    sample, stages = _full_fixture(tmp_path)
+    screen = _stage(
+        tmp_path / "stages",
+        "03b_checkm2",
+        {
+            "stage": "checkm2",
+            "status": "completed",
+            "tool": "CheckM2",
+            "tool_version": "1.1.0",
+            "command": "checkm2 predict",
+            "outputs": {"result": "quality_report.tsv"},
+        },
+    )
+    _write(
+        screen / "quality_report.tsv",
+        "Name\tCompleteness\tContamination\tCompleteness_Model_Used\n"
+        "euk1\t90\t103.62\tNeural Network (Specific Model)\n"
+        "euk2\t80\t101.71\tNeural Network (Specific Model)\n"
+        "prok\t70\t101.77\tNeural Network (Specific Model)\n",
+    )
+    bundle_path = collect_records(
+        sample, [*stages[:3], screen], tmp_path / "bundle.json"
+    )
+    database = build_catalog(bundle_path, tmp_path / "catalog.sqlite")
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT target_id, contamination_percent FROM qc ORDER BY target_id"
+        ).fetchall() == [("euk1", 103.62), ("euk2", 101.71), ("prok", 101.77)]
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint"):
+            connection.execute(
+                "UPDATE qc SET contamination_percent = ?", (float("inf"),)
+            )
+
+
 def test_collects_nextflow_command_for_parent_and_child_stages(
     tmp_path: Path,
 ) -> None:

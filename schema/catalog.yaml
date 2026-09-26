@@ -307,7 +307,8 @@ slots:
     description: Tool-reported contamination in percent, with tool-specific meaning.
     range: float
     minimum_value: 0
-    maximum_value: 100
+    # Largest finite float64; native estimates can exceed 100 percent.
+    maximum_value: 1.7976931348623157e+308
   completeness_basis:
     description: Exact method or model defining completeness_percent.
     range: string

@@ -285,7 +285,7 @@ def _parse_checkm2(path: Path) -> _ParsedToolRows:
                     row["Completeness"], "Completeness", 0, 100
                 ),
                 "contamination_percent": _required_float(
-                    row["Contamination"], "Contamination", 0, 100
+                    row["Contamination"], "Contamination", 0, None
                 ),
                 "completeness_basis": basis,
                 "contamination_basis": "CheckM2 reported contamination",

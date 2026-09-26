@@ -81,6 +81,25 @@ def test_validate_bundle_rejects_unknown_field_and_strict_type(tmp_path):
         validate_bundle(write_bundle(tmp_path, wrong_type))
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("contamination_percent", -0.1),
+        ("contamination_percent", float("inf")),
+        ("contamination_percent", float("nan")),
+        ("completeness_percent", 100.1),
+    ],
+)
+def test_validate_bundle_rejects_invalid_quality_values(
+    tmp_path: Path, field: str, value: float
+) -> None:
+    bundle = load_fixture()
+    bundle["qc"][0][field] = value
+
+    with pytest.raises(CatalogValidationError, match=field):
+        validate_bundle(write_bundle(tmp_path, bundle))
+
+
 def test_catalog_accepts_one_native_report_with_multiple_roles(tmp_path):
     bundle = load_fixture()
     source = bundle["artifacts"][0]

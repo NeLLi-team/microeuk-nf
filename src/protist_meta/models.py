@@ -640,7 +640,7 @@ class QualityAssessment(ResultRecord):
         description="""Tool-reported contamination in percent, with tool-
     specific meaning.""",
         ge=0,
-        le=100,
+        le=1.7976931348623157e308,
     )
     completeness_basis: str | None = Field(
         default=None,

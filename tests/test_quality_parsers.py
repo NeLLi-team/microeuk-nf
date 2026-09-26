@@ -507,22 +507,35 @@ def test_duplicate_normalized_target_ids_are_rejected(tmp_path: Path) -> None:
         parse_quality("checkm2", report)
 
 
-def test_nonfinite_quality_value_is_rejected(tmp_path: Path) -> None:
-    """Infinity is malformed evidence rather than missing evidence."""
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("Completeness", "inf", "Completeness is not finite"),
+        ("Completeness", "100.1", "Completeness exceeds 100"),
+        ("Contamination", "-0.1", "Contamination is below 0"),
+        ("Contamination", "inf", "Contamination is not finite"),
+        ("Contamination", "nan", "Contamination is missing"),
+    ],
+)
+def test_invalid_checkm2_quality_value_is_rejected(
+    tmp_path: Path, field: str, value: str, message: str
+) -> None:
+    """CheckM2 requires finite nonnegative values and completeness at most 100."""
     report = _write_tsv(
         tmp_path / "quality_report.tsv",
         CHECKM2_FIELDS,
         [
             {
                 "Name": "bin_1",
-                "Completeness": "inf",
+                "Completeness": "90",
                 "Contamination": "1",
                 "Completeness_Model_Used": "model-a",
+                field: value,
             }
         ],
     )
 
-    with pytest.raises(ValueError, match="Completeness is not finite"):
+    with pytest.raises(ValueError, match=message):
         parse_quality("checkm2", report)
 
 

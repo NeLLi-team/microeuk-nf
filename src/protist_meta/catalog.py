@@ -519,7 +519,9 @@ CREATE TABLE qc (
     ),
     target_id TEXT NOT NULL,
     completeness_percent REAL CHECK (completeness_percent BETWEEN 0 AND 100),
-    contamination_percent REAL CHECK (contamination_percent BETWEEN 0 AND 100),
+    contamination_percent REAL CHECK (
+        contamination_percent BETWEEN 0 AND 1.7976931348623157e+308
+    ),
     completeness_basis TEXT,
     contamination_basis TEXT,
     completeness_query_support TEXT,
