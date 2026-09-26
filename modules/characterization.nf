@@ -166,6 +166,21 @@ process SSU_EXTRACT {
         cpus = ${nestedCpus}
         memory = '${nestedMemoryGb} GB'
     }
+    process {
+        withName: BLAST_ANNOTATE {
+            time = { [8.h * task.attempt, params.max_time as nextflow.util.Duration].min() }
+            maxRetries = 1
+            errorStrategy = {
+                def error = task.previousException
+                def cause = error?.cause ?: error
+                (cause instanceof nextflow.exception.ProcessException &&
+                    cause.message?.startsWith('Process exceeded running time limit')) ||
+                    task.exitStatus in ((130..145) + 104)
+                    ? 'retry'
+                    : 'finish'
+            }
+        }
+    }
 CONFIG
     SSU_DB_VERSION=\$(pixi run --as-is --manifest-path "${params.ssuextract_app}/pixi.toml" \
         python "${params.ssuextract_app}/scripts/database_manager.py" version \

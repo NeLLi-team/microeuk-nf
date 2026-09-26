@@ -7,6 +7,24 @@ has 17 processes; the core workflow has seven. Process labels in
 launcher reserves 24 GB for Nextflow and allocation overhead and gives the
 remaining memory to the local executor.
 
+## Timeout retries
+
+`READ_QC` and the nested SSUextract `BLAST_ANNOTATE` process get one retry when
+Nextflow reports a process running-time timeout. The first attempt requests
+eight hours and the second requests 16 hours. Other `READ_QC` errors terminate
+the workflow. Nested BLAST annotation retains its existing retries for exit
+code 104 and signal-style exit codes 130 through 145; other errors use its
+existing `finish` strategy.
+
+The nested workflow receives `--max_time` from the outer `SSU_EXTRACT` process.
+This value caps the request for each nested process attempt. The outer process
+limit must cover the eight-hour first attempt, the 16-hour retry, and all other
+nested stages. The `heavy_qc` label currently gives `SSU_EXTRACT` 48 hours. The
+Slurm allocation walltime does not raise either process limit.
+
+Judge whether these limits are sufficient from task logs and measured
+production runtime.
+
 ## Clone the repository
 
 Run these commands from a Dori login node:
@@ -204,3 +222,27 @@ printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
 Nextflow reuses eligible tasks from the saved session. A new execution directory
 records the resume trace and resource reports. Check cached task states and
 validate the published outputs again.
+
+## Check the timeout retry policy
+
+After installing the repository environments, submit the standalone retry
+check in a small allocation. It tests timeout retries and ordinary exit-code
+failures with both installed Nextflow engines. Run the 32-CPU MICRO workflow
+gate in a separate allocation.
+
+```bash
+squeue -M perceus-00 -u fschulz --array
+proof_dir="$project_root/tasks/resource-retry-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$project_root/tasks/logs"
+receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
+  -p dori --qos=jgi_normal --chdir="$project_root" \
+  --cpus-per-task=2 --mem=16G --time=00:10:00 \
+  --output="$project_root/tasks/logs/resource-retry-%j.out" \
+  --error="$project_root/tasks/logs/resource-retry-%j.err" \
+  --wrap="bash tests/check_resource_retries.sh '$proof_dir'") || exit 1
+job_id=${receipt%%;*}
+[[ $job_id =~ ^[0-9]+$ ]] || exit 1
+printf '%s\n' "$receipt"
+```
+
+After the allocation completes, `$proof_dir/status.txt` contains `PASS`.
