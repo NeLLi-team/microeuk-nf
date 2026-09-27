@@ -103,6 +103,25 @@ process REPEAT_MASK_EUKARYOTES {
     def repeatMaskerWorkers = Math.max((task.cpus as int).intdiv(4), 1)
     """
     set -o pipefail
+    # Nextflow keeps .command.sh in the persistent task directory when using scratch.
+    REPEATMASK_WORK_DIR=\$(dirname "\$(realpath "\${BASH_SOURCE[0]}")")
+    REPEATMASK_LOG_DIR="\$PWD/09_repeat_masking/logs"
+    preserve_failure_logs() {
+        local status=\$?
+        trap - EXIT
+        if [[ \${status} -ne 0 && -d "\${REPEATMASK_LOG_DIR}" ]]; then
+            local failure_dir
+            if failure_dir=\$(mkdir -p "\${REPEATMASK_WORK_DIR}/repeatmask_failure_logs" \
+                && mktemp -d "\${REPEATMASK_WORK_DIR}/repeatmask_failure_logs/attempt.XXXXXXXX"); then
+                cp -a "\${REPEATMASK_LOG_DIR}/." "\${failure_dir}/" \
+                    || printf 'Could not preserve repeat-masking logs in %s.\n' "\${failure_dir}" >&2
+            else
+                printf '%s\n' 'Could not create the repeat-masking failure log directory.' >&2
+            fi
+        fi
+        exit "\${status}"
+    }
+    trap preserve_failure_logs EXIT
     mkdir -p 09_repeat_masking/{masked,models,logs}
     printf 'bin_id\tmask_source\trepeat_library\trepeat_family_count\tmasked_base_count\trepeatmasker_parallel_jobs\tdfam_release\n' \
         > 09_repeat_masking/logs/masking.tsv
@@ -130,6 +149,7 @@ process REPEAT_MASK_EUKARYOTES {
     REASON=no_routed_eukaryotic_bins
     RAN_REPEATMODELER=0
     RAN_REPEATMASKER=0
+    RAN_RECON_ONLY=0
     if [[ \${#BINS[@]} -gt 0 ]]; then
         STATUS=completed
         REASON=
@@ -157,11 +177,69 @@ process REPEAT_MASK_EUKARYOTES {
             FASTA_ABS=\$(realpath "\${FASTA}")
             pushd "09_repeat_masking/models/\${BIN}" >/dev/null
             pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
-                BuildDatabase -name repeatdb "\${FASTA_ABS}"
+                BuildDatabase -name repeatdb "\${FASTA_ABS}" \
+                > "../../logs/\${BIN}.builddatabase.log" 2>&1
             REPEATMODELER_LOG="../../logs/\${BIN}.repeatmodeler.log"
+            REPEATMODELER_STATUS=0
+            RECON_ONLY=0
             pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
                 RepeatModeler -database repeatdb -threads ${task.cpus} \
-                > "\${REPEATMODELER_LOG}" 2>&1
+                > "\${REPEATMODELER_LOG}" 2>&1 || REPEATMODELER_STATUS=\$?
+            printf '%s\n' "\${REPEATMODELER_STATUS}" > "../../logs/\${BIN}.repeatmodeler.initial.exitcode"
+            if [[ \${REPEATMODELER_STATUS} -ne 0 ]]; then
+                reject_native_child_crashes "\${REPEATMODELER_LOG}"
+                if [[ \${REPEATMODELER_STATUS} -ne 1 ]] \
+                    || ! grep -Fxq 'build_lmer_table failed. Exit code 256' "\${REPEATMODELER_LOG}"; then
+                    cat "\${REPEATMODELER_LOG}" >&2
+                    exit "\${REPEATMODELER_STATUS}"
+                fi
+                mapfile -t SCOUT_SAMPLES < <(find . -mindepth 3 -maxdepth 3 -type f \
+                    -path './RM_*/round-1/sampleDB-1.fa' -size +0c -print)
+                mapfile -t LMER_SETTINGS < <(awk '
+                    /^   - RepeatScout: Running build_lmer_table [(] l = [0-9]+, min = [0-9]+ [)][.][.]\$/ {
+                        gsub(",", "", \$8); print \$8, \$11
+                    }' "\${REPEATMODELER_LOG}")
+                if [[ \${#SCOUT_SAMPLES[@]} -ne 1 || \${#LMER_SETTINGS[@]} -ne 1 ]]; then
+                    printf '%s\n' 'Cannot identify one failed RepeatScout sample and its native l/min settings.' >&2
+                    exit "\${REPEATMODELER_STATUS}"
+                fi
+                read -r LMER_LENGTH LMER_MINIMUM <<< "\${LMER_SETTINGS[0]}"
+                PROBE="../../logs/\${BIN}.repeatscout-probe"
+                cp "\${SCOUT_SAMPLES[0]}" "\${PROBE}.fa"
+                printf 'build_lmer_table -l %s -min %s -sequence %s.fa -freq %s.lfreq\n' \
+                    "\${LMER_LENGTH}" "\${LMER_MINIMUM}" "\${PROBE}" "\${PROBE}" > "\${PROBE}.command.txt"
+                PROBE_STATUS=0
+                pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
+                    build_lmer_table -l "\${LMER_LENGTH}" -min "\${LMER_MINIMUM}" \
+                    -sequence "\${PROBE}.fa" -freq "\${PROBE}.lfreq" \
+                    > "\${PROBE}.stdout" 2> "\${PROBE}.stderr" || PROBE_STATUS=\$?
+                printf '%s\n' "\${PROBE_STATUS}" > "\${PROBE}.exitcode"
+                tr '\\r' '\\n' < "\${PROBE}.stderr" > "\${PROBE}.stderr.normalized"
+                reject_native_child_crashes "\${PROBE}.stdout"
+                reject_native_child_crashes "\${PROBE}.stderr"
+                if [[ \${PROBE_STATUS} -ne 1 || -e "\${PROBE}.lfreq" ]] \
+                    || ! grep -Fxq 'OOPS no good lmers' "\${PROBE}.stderr.normalized"; then
+                    cat "\${PROBE}.stderr" >&2
+                    printf '%s\n' 'RepeatScout failure did not confirm the no-seed condition.' >&2
+                    exit "\${REPEATMODELER_STATUS}"
+                fi
+                mkdir failed_repeatscout
+                mv "\${SCOUT_SAMPLES[0]%%/round-1/*}" failed_repeatscout/
+                mv "\${REPEATMODELER_LOG}" "../../logs/\${BIN}.repeatmodeler.initial.log"
+                RECON_ONLY=1
+                RAN_RECON_ONLY=1
+                printf '%s\n' 'Confirmed RepeatScout no-seed outcome; retrying RepeatModeler -skipRS (RECON-only discovery).' \
+                    > "../../logs/\${BIN}.repeatmodeler.recovery.log"
+                REPEATMODELER_STATUS=0
+                pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
+                    RepeatModeler -database repeatdb -threads ${task.cpus} -skipRS \
+                    > "\${REPEATMODELER_LOG}" 2>&1 || REPEATMODELER_STATUS=\$?
+            fi
+            printf '%s\n' "\${REPEATMODELER_STATUS}" > "../../logs/\${BIN}.repeatmodeler.exitcode"
+            if [[ \${REPEATMODELER_STATUS} -ne 0 ]]; then
+                cat "\${REPEATMODELER_LOG}" >&2
+                exit "\${REPEATMODELER_STATUS}"
+            fi
             reject_native_child_crashes "\${REPEATMODELER_LOG}"
             RAW_CONSENSUS=\$(find . -maxdepth 2 -type f -name 'consensi.fa' -size +0c -print -quit)
             CONSENSUS=\$(find . -maxdepth 2 -type f -name 'consensi.fa.classified' -size +0c -print -quit)
@@ -220,10 +298,13 @@ process REPEAT_MASK_EUKARYOTES {
                 printf '%s\n' \
                     'RepeatModeler produced repeat models without a nonempty classified consensus.' >&2
                 exit 2
-            elif grep -Fxq 'RepeatScout/RECON discovery complete: 0 families found' \
-                "../../logs/\${BIN}.repeatmodeler.log" \
-                && grep -Fxq 'No families identified.  Perhaps the database is too small' \
-                    "../../logs/\${BIN}.repeatmodeler.log"; then
+            elif grep -Fxq 'No families identified.  Perhaps the database is too small' "\${REPEATMODELER_LOG}" \
+                && { grep -Fxq 'RepeatScout/RECON discovery complete: 0 families found' "\${REPEATMODELER_LOG}" \
+                    || { [[ \${RECON_ONLY} -eq 1 ]] \
+                        && grep -Fxq 'RepeatScout/RECON discovery complete:  families found' "\${REPEATMODELER_LOG}" \
+                        && grep -Eq '^Round Time: .* Elapsed Time : 0 families discovered[.]\$' "\${REPEATMODELER_LOG}" \
+                        && awk '/^ -- Input Database Coverage: [0-9]+ bp out of [0-9]+ bp [(] 100[.]00 % [)]\$/ \
+                            && \$5 > 0 && \$5 == \$9 {covered=1} END {exit !covered}' "\${REPEATMODELER_LOG}"; }; }; then
                 cp -L "\${FASTA_ABS}" "../../masked/\${BIN}.softmasked.fna"
                 printf '%s\n' \
                     'RepeatModeler reported zero discovered families; RepeatMasker was not run.' \
@@ -236,6 +317,9 @@ process REPEAT_MASK_EUKARYOTES {
                 printf '%s\n' \
                     'RepeatModeler produced neither classified models nor the explicit zero-family marker.' >&2
                 exit 2
+            fi
+            if [[ \${RECON_ONLY} -eq 1 ]]; then
+                MASK_SOURCE="\${MASK_SOURCE}_recon_only"
             fi
             popd >/dev/null
             MASKED_OUT="09_repeat_masking/masked/\${BIN}.softmasked.fna"
@@ -279,6 +363,9 @@ process REPEAT_MASK_EUKARYOTES {
         TOOL='RepeatModeler;RepeatMasker'
         TOOL_VERSION="RepeatModeler \${REPEATMODELER_VERSION}; RepeatMasker \${REPEATMASKER_VERSION}"
         COMMAND='RepeatModeler -threads ${task.cpus}; RepeatMasker -pa ${repeatMaskerWorkers} -xsmall; verify exact sequence identity ignoring mask case'
+    fi
+    if [[ \${RAN_RECON_ONLY} -eq 1 ]]; then
+        COMMAND="\${COMMAND}; confirmed RepeatScout no-seed recovery: RepeatModeler -skipRS -threads ${task.cpus} (RECON-only discovery)"
     fi
     cat > 09_repeat_masking/stage.json <<JSON
     {

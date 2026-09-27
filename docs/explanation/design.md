@@ -46,6 +46,16 @@ elements within a host; they do not supply whole-bin viral support. When a host
 bin is routed to a cellular gene caller, its integrated intervals are excluded
 from the unbinned viral gene input.
 
+RepeatModeler supplies the repeat library unless a softmasked assembly is provided.
+The workflow confirms a RepeatScout no-seed failure by rerunning its native child
+command on the sampled sequence, then retries RepeatModeler once with `-skipRS`.
+The logs and masking provenance record this RECON-only discovery route.
+A completed run with no discovered families retains the input sequence.
+A blank family count is accepted only for this confirmed
+recovery, with explicit zero-family round output and full input coverage.
+No discovered families does not establish that the assembly lacks repeats.
+Other native failures stop the workflow. Stage logs survive task scratch cleanup.
+
 BRAKER3 requires a softmasked assembly and compatible RNA or protein evidence.
 RNA alignments must belong to the target bin. Supplied proteins need an explicit
 lineage label. RNA alone selects ET mode; proteins alone select EP
