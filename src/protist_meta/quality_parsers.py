@@ -447,6 +447,7 @@ def _read_tsv(
     path: Path,
     required: set[str],
 ) -> tuple[list[dict[str, str]], tuple[str, ...]]:
+    csv.field_size_limit(max(csv.field_size_limit(), path.stat().st_size))
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle, delimiter="\t")
         fields = reader.fieldnames

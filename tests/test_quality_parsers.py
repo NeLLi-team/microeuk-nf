@@ -364,7 +364,7 @@ def test_gvclass_retains_unknown_target_in_coverage(tmp_path: Path) -> None:
 
 
 def test_gtdbtk_parses_each_rank_and_flags_native_evidence_gap(tmp_path: Path) -> None:
-    """GTDB-Tk classification ranks become independent taxonomy evidence."""
+    """GTDB-Tk taxonomy survives related-reference fields above the CSV default."""
     report = _write_tsv(
         tmp_path / "gtdbtk.bac120.summary.tsv",
         GTDBTK_FIELDS,
@@ -377,12 +377,19 @@ def test_gtdbtk_parses_each_rank_and_flags_native_evidence_gap(tmp_path: Path) -
                 "classification_method": "ANI/Placement",
                 "closest_genome_ani": "98.2",
                 "closest_genome_af": "0.91",
+                "other_related_references(genome_id,species_name,radius,ANI,AF)": (
+                    "GCF_000005845.2,s__Escherichia coli,95,98.2,0.91;" * 4096
+                ),
                 "red_value": "0.973",
             }
         ],
     )
 
-    parsed = parse_quality("GTDB-Tk", report)
+    original_limit = csv.field_size_limit(131072)
+    try:
+        parsed = parse_quality("GTDB-Tk", report)
+    finally:
+        csv.field_size_limit(original_limit)
 
     assert parsed.target_ids == ("bin_5",)
     assert [row["rank"] for row in parsed.taxonomy] == [
