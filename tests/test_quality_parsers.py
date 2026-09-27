@@ -271,7 +271,10 @@ def test_checkeuk_filtered_target_remains_covered_without_qc(
     )
 
 
-def test_checkm_native_reports_become_tool_specific_qc(tmp_path: Path) -> None:
+@pytest.mark.parametrize("contamination", [0.0, 214.81, 300.0])
+def test_checkm_native_reports_become_tool_specific_qc(
+    tmp_path: Path, contamination: float
+) -> None:
     """CheckM1 and CheckM2 keep their native model or lineage basis."""
     checkm1 = _write_tsv(
         tmp_path / "checkm1.tsv",
@@ -281,7 +284,7 @@ def test_checkm_native_reports_become_tool_specific_qc(tmp_path: Path) -> None:
                 "Bin Id": "bin-a.fna",
                 "Marker lineage": "Eukaryota",
                 "Completeness": "0",
-                "Contamination": "0",
+                "Contamination": str(contamination),
             }
         ],
     )
@@ -303,6 +306,7 @@ def test_checkm_native_reports_become_tool_specific_qc(tmp_path: Path) -> None:
 
     assert parsed1.target_ids == ("bin-a",)
     assert parsed1.qc[0]["completeness_percent"] == 0.0
+    assert parsed1.qc[0]["contamination_percent"] == contamination
     assert parsed1.qc[0]["completeness_basis"] == "Eukaryota"
     assert parsed2.target_ids == ("bin.2",)
     assert parsed2.qc[0]["record_id"] == "checkm2:qc:bin.2"
@@ -508,8 +512,16 @@ def test_duplicate_normalized_target_ids_are_rejected(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("tool", "fields", "identifier", "basis"),
+    [
+        ("checkm1", CHECKM1_FIELDS, "Bin Id", "Marker lineage"),
+        ("checkm2", CHECKM2_FIELDS, "Name", "Completeness_Model_Used"),
+    ],
+)
+@pytest.mark.parametrize(
     ("field", "value", "message"),
     [
+        ("Completeness", "-0.1", "Completeness is below 0"),
         ("Completeness", "inf", "Completeness is not finite"),
         ("Completeness", "100.1", "Completeness exceeds 100"),
         ("Contamination", "-0.1", "Contamination is below 0"),
@@ -517,26 +529,34 @@ def test_duplicate_normalized_target_ids_are_rejected(tmp_path: Path) -> None:
         ("Contamination", "nan", "Contamination is missing"),
     ],
 )
-def test_invalid_checkm2_quality_value_is_rejected(
-    tmp_path: Path, field: str, value: str, message: str
+def test_invalid_checkm_quality_value_is_rejected(
+    tmp_path: Path,
+    *,
+    tool: str,
+    fields: tuple[str, ...],
+    identifier: str,
+    basis: str,
+    field: str,
+    value: str,
+    message: str,
 ) -> None:
-    """CheckM2 requires finite nonnegative values and completeness at most 100."""
+    """CheckM requires finite nonnegative values and completeness at most 100."""
     report = _write_tsv(
         tmp_path / "quality_report.tsv",
-        CHECKM2_FIELDS,
+        fields,
         [
             {
-                "Name": "bin_1",
+                identifier: "bin_1",
                 "Completeness": "90",
                 "Contamination": "1",
-                "Completeness_Model_Used": "model-a",
+                basis: "model-a",
                 field: value,
             }
         ],
     )
 
     with pytest.raises(ValueError, match=message):
-        parse_quality("checkm2", report)
+        parse_quality(tool, report)
 
 
 def test_checkeuk_detail_requires_exact_target_coverage(tmp_path: Path) -> None:

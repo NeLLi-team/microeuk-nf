@@ -247,7 +247,7 @@ def _parse_checkm1(path: Path) -> _ParsedToolRows:
     for row in rows:
         target = _unique_target(row["Bin Id"], observed, "CheckM1")
         completeness = _required_float(row["Completeness"], "Completeness", 0, 100)
-        contamination = _required_float(row["Contamination"], "Contamination", 0, 100)
+        contamination = _required_float(row["Contamination"], "Contamination", 0, None)
         basis = row["Marker lineage"].strip()
         if basis == "":
             raise ValueError(f"CheckM1 marker lineage is empty for {target}")
