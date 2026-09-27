@@ -51,6 +51,9 @@ GVCLASS_DOMAINS = {
     "d_NCLDV": "viral",
     "d_PPV": "viral",
     "d_MIRUS": "viral",
+    "d_PHAGE": "viral",
+    "d_PLASTID": "organelle",
+    "d_MITO": "organelle",
     "d_EUK-pEVE": "ambiguous",
 }
 UNCLASSIFIED_GVCLASS = {"", "d_", "nd"}
@@ -318,6 +321,14 @@ def _decide(evidence: BinEvidence) -> Decision:
         route = "unresolved"
         candidate_class = "conflicting"
         reason = "GVClass reports an ambiguous eukaryote-virus class"
+    elif signals.gvclass == "organelle":
+        route = "unresolved"
+        candidate_class = (
+            "conflicting"
+            if signals.eukaryotic or signals.prokaryotic or signals.viral
+            else "unresolved"
+        )
+        reason = "GVClass reports an organelle class without a gene-calling route"
     elif signals.eukaryotic and (signals.viral or signals.gvclass == "prokaryotic"):
         route = "unresolved"
         candidate_class = "conflicting"
@@ -393,6 +404,8 @@ def _supporting(
     signals: Signals,
 ) -> tuple[str, ...]:
     items: list[str] = []
+    if signals.gvclass == "organelle":
+        items.append(f"GVClass:{evidence.gvclass['taxonomy_majority']}")
     if signals.eukaryotic:
         items.append(f"CheckEUK:{evidence.checkeuk['lineage']}")
         if _gvclass_domain(evidence.gvclass) == "d_EUK":
@@ -440,6 +453,10 @@ def _conflicting(
         items.append(f"GVClass:{evidence.gvclass['taxonomy_majority']}")
     if signals.gvclass == "ambiguous":
         items.append(f"GVClass:{evidence.gvclass['taxonomy_majority']}")
+    if signals.gvclass == "organelle" and (
+        signals.eukaryotic or signals.prokaryotic or signals.viral
+    ):
+        items.append("organelle evidence conflicts with supported routing evidence")
     return tuple(items)
 
 

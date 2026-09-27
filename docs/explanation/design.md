@@ -30,6 +30,13 @@ labels stay in the evidence table but do not establish a eukaryotic route or
 veto a viral route. A eukaryotic route requires a resolved CheckEUK lineage
 plus GVClass eukaryotic support or a linked eukaryotic SSU locus.
 
+GVClass `d_PLASTID` and `d_MITO` calls retain an unresolved route because the
+workflow has no organelle gene caller. Supported eukaryotic, prokaryotic, or viral
+evidence changes their candidate class from unresolved to conflicting.
+The ledger retains the organelle lineage, confidence, and independent evidence.
+GVClass `d_PHAGE` calls use the viral routing and conflict rules. Native confidence
+labels, including `low_support`, are retained without an additional routing gate.
+
 Route labels select downstream analyses. They do not establish final taxonomy
 or MAG acceptance.
 
