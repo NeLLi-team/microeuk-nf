@@ -46,6 +46,7 @@ QUICKCLADE_DOMAINS = {
 }
 GVCLASS_DOMAINS = {
     "d_BAC": "prokaryotic",
+    "d_ARC": "prokaryotic",
     "d_EUK": "eukaryotic",
     "d_NCLDV": "viral",
     "d_PPV": "viral",

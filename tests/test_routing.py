@@ -85,6 +85,8 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
         "euk_ssu": "contig_euk_ssu",
         "shared_taxon": "contig_shared_taxon",
         "prok": "contig_prok",
+        "archaeal": "contig_archaeal",
+        "archaeal_euk_conflict": "contig_archaeal_euk_conflict",
         "viral": "contig_viral",
         "euk_provirus": "contig_euk_provirus",
         "prok_provirus": "contig_prok_provirus",
@@ -101,6 +103,20 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
     _write_reports(
         directories,
         quickclade=[
+            {
+                "#QueryName": "archaeal.fa",
+                "Q_Bases": "8",
+                "lineage": "",
+                "ConfLevel": "",
+                "Confidence": "",
+            },
+            {
+                "#QueryName": "archaeal_euk_conflict.fa",
+                "Q_Bases": "8",
+                "lineage": "",
+                "ConfLevel": "",
+                "Confidence": "",
+            },
             {
                 "#QueryName": "euk_gv.fa",
                 "Q_Bases": "8",
@@ -173,6 +189,8 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
             },
         ],
         checkeuk=[
+            {"genome": "archaeal", "status": "filtered", "lineage": ""},
+            {"genome": "archaeal_euk_conflict", "status": "ok", "lineage": "sg__Sar"},
             {"genome": "euk_gv", "status": "ok", "lineage": "sg__Sar"},
             {"genome": "euk_ssu", "status": "ok", "lineage": "sg__Sar"},
             {"genome": "shared_taxon", "status": "ok", "lineage": "sg__Sar"},
@@ -201,6 +219,18 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
             {"genome": "unclassified", "status": "filtered", "lineage": ""},
         ],
         gvclass=[
+            {
+                "query": "archaeal",
+                "taxonomy_majority": "d_ARC;p_Nanobdellota",
+                "taxonomy_confidence": "low_support",
+                "domain": "",
+            },
+            {
+                "query": "archaeal_euk_conflict",
+                "taxonomy_majority": "d_ARC;p_Nanobdellota",
+                "taxonomy_confidence": "low_support",
+                "domain": "",
+            },
             {
                 "query": "euk_gv",
                 "taxonomy_majority": "d_EUK;p_Ochrophyta",
@@ -264,6 +294,13 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
         ],
         ssu=[
             {
+                "name": "archaeal-euk18s-linked",
+                "model": "RF01960",
+                "contig_name": "contig_archaeal_euk_conflict",
+                "taxonomy": "Eukaryota;Sar",
+                "taxonomy_domain": "Eukaryota",
+            },
+            {
                 "name": "euk18s-linked",
                 "model": "RF01960",
                 "contig_name": "contig_euk_ssu",
@@ -314,6 +351,24 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
     assert evidence["shared_taxon"]["route"] == "unresolved"
     assert json.loads(evidence["shared_taxon"]["linked_eukaryotic_ssu"]) == []
     assert evidence["prok"]["candidate_class"] == "bacterial_archaeal_candidate"
+    assert evidence["archaeal"]["route"] == "prokaryotic"
+    assert evidence["archaeal"]["candidate_class"] == "bacterial_archaeal_candidate"
+    assert evidence["archaeal"]["gvclass_domain"] == "d_ARC"
+    assert evidence["archaeal"]["gvclass_taxonomy_confidence"] == "low_support"
+    assert json.loads(evidence["archaeal"]["supporting_evidence"]) == [
+        "GVClass:d_ARC;p_Nanobdellota"
+    ]
+    assert json.loads(evidence["archaeal"]["conflicting_evidence"]) == []
+    assert evidence["archaeal_euk_conflict"]["route"] == "unresolved"
+    assert evidence["archaeal_euk_conflict"]["candidate_class"] == "conflicting"
+    assert json.loads(evidence["archaeal_euk_conflict"]["supporting_evidence"]) == [
+        "CheckEUK:sg__Sar",
+        "SSU:archaeal-euk18s-linked@contig_archaeal_euk_conflict",
+        "GVClass:d_ARC;p_Nanobdellota",
+    ]
+    assert json.loads(evidence["archaeal_euk_conflict"]["conflicting_evidence"]) == [
+        "GVClass:d_ARC;p_Nanobdellota"
+    ]
     assert evidence["viral"]["candidate_class"] == "viral_candidate"
     assert evidence["euk_provirus"]["candidate_class"] == "eukaryotic_candidate"
     assert len(json.loads(evidence["euk_provirus"]["linked_genomad_viruses"])) == 1
