@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -510,7 +511,9 @@ provenance.
 """.strip()
 
 
-def build_report(database: Path, output_dir: Path) -> Path:
+def build_report(
+    database: Path, output_dir: Path, *, execution_provenance: Path | None = None
+) -> Path:
     """Execute a read-only catalog report and export its HTML sibling.
 
     The ``python3`` kernelspec is loaded only from ``sys.prefix``. User-level
@@ -519,18 +522,25 @@ def build_report(database: Path, output_dir: Path) -> Path:
     Args:
         database: Published protist catalog SQLite file.
         output_dir: Destination for the executed notebook and HTML report.
+        execution_provenance: Optional reviewed-source recovery receipt.
 
     Returns:
         Path to ``report.executed.ipynb``.
 
     Raises:
         FileNotFoundError: If ``database`` does not exist.
-        ValueError: If ``database`` is not a regular file.
+        ValueError: If the database or recovery receipt has invalid provenance.
+        TypeError: If a recovery receipt JSON object has an invalid type.
     """
     database_reference = Path(os.path.relpath(database, start=output_dir))
     source_database = database.resolve(strict=True)
     if not source_database.is_file():
         raise ValueError(f"catalog database is not a regular file: {source_database}")
+    receipt = (
+        _read_execution_provenance(execution_provenance, source_database)
+        if execution_provenance is not None
+        else None
+    )
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -539,11 +549,95 @@ def build_report(database: Path, output_dir: Path) -> Path:
         source_database,
         _sha256(source_database),
     )
+    if receipt is not None:
+        notebook.cells.insert(2, nbformat.v4.new_code_cell(_receipt_code(receipt)))
+        (output_dir / "recovery.json").write_bytes(receipt)
     _execute_notebook(notebook, output_dir)
     notebook_path = output_dir / EXECUTED_NOTEBOOK_NAME
     nbformat.write(notebook, notebook_path)
     _export_html(notebook, output_dir / HTML_REPORT_NAME)
     return notebook_path
+
+
+def _read_execution_provenance(path: Path, database: Path) -> bytes:
+    receipt = path.read_bytes()
+    provenance = json.loads(receipt)
+    if not isinstance(provenance, dict):
+        raise TypeError("execution provenance must be a JSON object")
+    if (
+        type(provenance.get("schema_version")) is not int
+        or provenance.get("schema_version") != 1
+    ):
+        raise ValueError("execution provenance schema_version must be 1")
+    if provenance.get("recovery_mode") != "reviewed-source":
+        raise ValueError("execution provenance recovery_mode must be reviewed-source")
+    for field in (
+        "sample_id",
+        "run_id",
+        "original_source_revision",
+        "execution_source_revision",
+        "execution_directory",
+        "started_at",
+        "preparation_identity_sha256",
+        "allocation_config_sha256",
+    ):
+        if not isinstance(provenance.get(field), str) or not provenance[field]:
+            raise ValueError(f"execution provenance {field} must be a nonempty string")
+    if not Path(provenance["execution_directory"]).is_absolute():
+        raise ValueError("execution provenance execution_directory must be absolute")
+    if not isinstance(provenance.get("preparation_identity"), dict):
+        raise TypeError("execution provenance preparation_identity must be an object")
+    if provenance.get("forced_processes") != [
+        "ROUTE_BINS",
+        "COLLECT_RECORDS",
+        "BUILD_CATALOG",
+        "BUILD_REPORT",
+    ]:
+        raise ValueError("execution provenance forced_processes do not match recovery")
+    _check_catalog_identity(
+        database,
+        provenance["original_source_revision"],
+        provenance["sample_id"],
+        provenance["run_id"],
+    )
+    return receipt
+
+
+def _check_catalog_identity(
+    database: Path, original_source_revision: str, sample_id: str, run_id: str
+) -> None:
+    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as connection:
+        sources = connection.execute(
+            "SELECT source_revision FROM catalog_metadata"
+        ).fetchall()
+        if sources != [(original_source_revision,)]:
+            raise ValueError("execution provenance original_source_revision mismatch")
+        run = connection.execute(
+            "SELECT 1 FROM runs WHERE sample_id = ? AND run_id = ?",
+            (sample_id, run_id),
+        ).fetchone()
+        if run is None:
+            raise ValueError(
+                "execution provenance sample_id/run_id absent from catalog"
+            )
+
+
+def _receipt_code(receipt: bytes) -> str:
+    digest = hashlib.sha256(receipt).hexdigest()
+    return (
+        "import json\n\n"
+        f"recovery = json.loads({receipt.decode('utf-8')!r})\n"
+        f"recovery_sha256 = {digest!r}\n"
+        'display(HTML("<h2>Reviewed-source recovery</h2>"))\n'
+        "for label, value in (\n"
+        '    ("Original preparation source", recovery["original_source_revision"]),\n'
+        '    ("Resumed execution source", recovery["execution_source_revision"]),\n'
+        '    ("Recovery receipt SHA256", recovery_sha256),\n'
+        "):\n"
+        '    display(HTML("<p>" + html.escape(label + ": " + value) + "</p>"))\n'
+        'display(HTML("<pre>" + html.escape(json.dumps(recovery, indent=2))'
+        ' + "</pre>"))'
+    )
 
 
 def _build_notebook(

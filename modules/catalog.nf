@@ -94,10 +94,13 @@ process BUILD_REPORT {
     path 'report', emit: result
 
     script:
+    def executionProvenance = params.execution_provenance
+        ? "--execution-provenance '" + params.execution_provenance.toString().replace("'", "'\"'\"'") + "'"
+        : ''
     """
     "${params.cli}" report \
         --catalog "${catalog_dir}/protist-meta.sqlite" \
-        --output-dir report
+        --output-dir report ${executionProvenance}
     [[ -s report/index.html ]]
     """
 

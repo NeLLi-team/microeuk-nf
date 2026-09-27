@@ -24,8 +24,8 @@ if [[ $BASH != "$root_bash" || ${CONDA_PREFIX:-} != "$root_prefix" \
         "$root_bash" "$0" "$@"
     exit "$?"
 fi
-if [[ $# -lt 3 || $# -gt 4 ]]; then
-    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume]' >&2
+if [[ $# != 3 && $# != 4 && $# != 6 ]]; then
+    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST]' >&2
     exit 2
 fi
 if [[ ! -f "$project_root/pixi.toml" ]]; then
@@ -37,9 +37,15 @@ if [[ $mode != core && $mode != full ]]; then
     echo 'The third argument must be core or full.' >&2
     exit 2
 fi
-if [[ $# -eq 4 && $4 != resume ]]; then
-    echo 'The optional fourth argument must be resume.' >&2
+if [[ ($# == 4 && $4 != resume) || ($# == 6 && $4 != resume-reviewed) ]]; then
+    echo 'Use resume alone, or resume-reviewed with OLD_DIGEST and NEW_DIGEST.' >&2
     exit 2
+fi
+if [[ ${4:-} == resume-reviewed ]]; then
+    if [[ ! $5 =~ ^sha256:[0-9a-f]{64}$ || ! $6 =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo 'Reviewed source digests must be sha256: followed by 64 lowercase hex digits.' >&2
+        exit 2
+    fi
 fi
 samples=$(realpath "$1")
 run_dir=$(realpath -m "$2")
@@ -80,7 +86,7 @@ if ((executor_memory_gb < largest_process_memory_gb)); then
 fi
 
 resume_args=()
-if [[ ${4:-} == resume ]]; then
+if [[ ${4:-} == resume || ${4:-} == resume-reviewed ]]; then
     [[ -d "$run_dir/launch/.nextflow" ]]
     [[ -s "$run_dir/prepared/samples.tsv" ]]
     [[ -s "$run_dir/prepared/dependencies.config" ]]
@@ -138,10 +144,18 @@ from protist_meta.inputs import read_registry
 read_registry(Path(sys.argv[1]), mode=sys.argv[2])
 PYTHON
 
-if [[ ${4:-} == resume ]]; then
+if [[ ${4:-} == resume || ${4:-} == resume-reviewed ]]; then
     current_source_revision=$(pixi run --as-is --manifest-path "$project_root/pixi.toml" \
         python -c 'import sys; from pathlib import Path; from protist_meta.inputs import _source_digest; print(_source_digest(Path(sys.argv[1])))' \
         "$project_root")
+    expected_source_revision=$current_source_revision
+    if [[ ${4:-} == resume-reviewed ]]; then
+        if [[ $6 != "$current_source_revision" ]]; then
+            echo 'Reviewed execution source digest does not match the current source.' >&2
+            exit 2
+        fi
+        expected_source_revision=$5
+    fi
     while IFS=$'\t' read -r key current; do
         saved=$(awk -F '\t' -v key="$key" '$1 == key {print $2}' "$identity")
         if [[ -z "$saved" || "$saved" != "$current" ]]; then
@@ -156,7 +170,7 @@ registry_sha256	$(sha256sum "$registry" | awk '{print $1}')
 prepared_samples_sha256	$(sha256sum "$run_dir/prepared/samples.tsv" | awk '{print $1}')
 dependencies_config_sha256	$(sha256sum "$run_dir/prepared/dependencies.config" | awk '{print $1}')
 inputs_json_sha256	$(sha256sum "$run_dir/prepared/inputs.json" | awk '{print $1}')
-source_revision	$current_source_revision
+source_revision	$expected_source_revision
 IDENTITY
 else
     mkdir -p "$run_dir/launch"
@@ -192,6 +206,51 @@ report.file = '${execution_dir}/nextflow-report.html'
 timeline.file = '${execution_dir}/timeline.html'
 dag.file = '${execution_dir}/dag.html'
 CONFIG
+if [[ ${4:-} == resume-reviewed ]]; then
+    pixi run --as-is --manifest-path "$project_root/pixi.toml" \
+        python - "$identity" "$execution_dir" "$5" "$6" <<'PYTHON'
+import csv
+import hashlib
+import json
+import re
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+identity = Path(sys.argv[1])
+execution = Path(sys.argv[2])
+with identity.open(encoding="utf-8", newline="") as handle:
+    preparation_identity = dict(csv.reader(handle, delimiter="\t"))
+inputs = json.loads((identity.parent / "inputs.json").read_text(encoding="utf-8"))
+dependencies = (identity.parent / "dependencies.config").read_text(encoding="utf-8")
+run_id = re.search(r"^params\.run_id = '([^']+)'$", dependencies, re.MULTILINE)
+if run_id is None:
+    raise ValueError("saved preparation has no run_id")
+forced_processes = ["ROUTE_BINS", "COLLECT_RECORDS", "BUILD_CATALOG", "BUILD_REPORT"]
+receipt_path = execution / "recovery.json"
+config_path = execution / "allocation.config"
+quoted_receipt = str(receipt_path).replace("\\", "\\\\").replace("'", "\\'")
+with config_path.open("a", encoding="utf-8") as handle:
+    for process in forced_processes:
+        handle.write(f"process {{ withName: '{process}' {{ cache = false }} }}\n")
+    handle.write(f"params.execution_provenance = '{quoted_receipt}'\n")
+receipt = {
+    "schema_version": 1,
+    "recovery_mode": "reviewed-source",
+    "sample_id": inputs["samples"][0]["sample_id"],
+    "run_id": run_id.group(1),
+    "original_source_revision": sys.argv[3],
+    "execution_source_revision": sys.argv[4],
+    "execution_directory": str(execution),
+    "started_at": datetime.now(UTC).isoformat(),
+    "forced_processes": forced_processes,
+    "preparation_identity": preparation_identity,
+    "preparation_identity_sha256": hashlib.sha256(identity.read_bytes()).hexdigest(),
+    "allocation_config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+}
+receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+PYTHON
+fi
 cd "$run_dir/launch"
 pixi run --as-is --manifest-path "$project_root/pixi.toml" \
     nextflow -log "$execution_dir/nextflow.log" run "$project_root/main.nf" \

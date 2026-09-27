@@ -53,7 +53,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 build_report,
             )
 
-            build_report(args.catalog, args.output_dir)
+            build_report(
+                args.catalog,
+                args.output_dir,
+                execution_provenance=args.execution_provenance,
+            )
     return 0
 
 
@@ -128,6 +132,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     report.add_argument(
         "--output-dir", type=Path, required=True, help="Report directory"
+    )
+    report.add_argument(
+        "--execution-provenance",
+        type=Path,
+        help="Reviewed-source recovery receipt to validate and embed",
     )
     return parser
 

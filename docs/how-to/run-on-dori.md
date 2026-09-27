@@ -203,8 +203,8 @@ meanings and evidence-pair requirements.
 
 Retain the run's `launch/`, `work/`, and `prepared/` directories. Keep the
 source, sample sheet, registry, and referenced Pixi manifests and locks
-unchanged. The launcher rejects an identity mismatch. Start a new run directory
-after changing any of those inputs.
+unchanged. The launcher rejects an identity mismatch. Changed inputs require a
+new run directory. A reviewed source repair can use the separate procedure below.
 
 Repeat the queue checks, then submit the same run with the fourth argument
 `resume`:
@@ -222,6 +222,64 @@ printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
 Nextflow reuses eligible tasks from the saved session. A new execution directory
 records the resume trace and resource reports. Check cached task states and
 validate the published outputs again.
+
+## Resume after a reviewed source repair
+
+Use this procedure only after reviewing the exact source changes and confirming
+which completed scientific stages remain valid. It does not determine whether
+arbitrary code or dependency updates are compatible with cached results.
+
+The launcher reruns `ROUTE_BINS`, `COLLECT_RECORDS`, `BUILD_CATALOG` and
+`BUILD_REPORT`. Nextflow decides cache eligibility for other tasks from its
+normal task hashes. A changed task script can therefore repeat scientific work.
+Changes to shared Python helpers or external tools need their own cache review;
+the four forced tasks alone do not cover such changes.
+
+1. Wait for every run using this checkout to stop before updating its source.
+   Retain the same checkout path, input files and saved run directories.
+   Keep `prepared/` and its identity file unchanged.
+
+2. After reviewing the repair, record the original and repaired content digests.
+   The repaired checkout and referenced dependency manifests must remain fixed
+   during execution.
+
+   ```bash
+   original_digest=$(awk -F '\t' '$1 == "source_revision" {print $2}' \
+     "$run_dir/prepared/resume-identity.tsv")
+   repaired_digest=$(pixi run --as-is --manifest-path "$project_root/pixi.toml" \
+     python -c 'import sys; from pathlib import Path; from protist_meta.inputs import _source_digest; print(_source_digest(Path(sys.argv[1])))' \
+     "$project_root")
+   printf 'Original: %s\nRepaired: %s\n' "$original_digest" "$repaired_digest"
+   ```
+
+3. Check the shared queue, then submit the explicit source transition.
+
+   ```bash
+   squeue -M perceus-00 -u fschulz --array
+   receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
+     -p dori --qos=jgi_normal --chdir="$project_root" \
+     --cpus-per-task=32 --mem=384G --time=72:00:00 \
+     scripts/run-allocation.slurm "$samples" "$run_dir" full resume-reviewed \
+     "$original_digest" "$repaired_digest") || exit 1
+   job_id=${receipt%%;*}
+   [[ $job_id =~ ^[0-9]+$ ]] || exit 1
+   printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
+   ```
+
+4. Verify the new execution trace and outputs. All input identity checks still
+   apply. The execution directory contains `recovery.json`, which records both
+   source digests, the original preparation identity, the allocation configuration
+   digest and the forced tasks. The report copies that receipt and displays its
+   contents and SHA-256 in the executed notebook and HTML.
+
+If this recovery attempt fails, repeat `resume-reviewed` with the same two
+digests. Each attempt writes its own receipt. Plain `resume` still compares
+against the original preparation source and rejects the repaired source.
+
+The catalog retains the original preparation source identity so that existing
+task metadata and caches remain comparable. The displayed recovery receipt
+identifies the repaired execution source. Interpret these together; the original
+catalog identity alone does not describe the code used for recovered outputs.
 
 ## Check the timeout retry policy
 
