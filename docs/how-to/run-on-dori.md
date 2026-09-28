@@ -8,6 +8,12 @@ gene calling disabled; the core workflow has seven. Process labels in
 launcher reserves 24 GB for Nextflow and allocation overhead and gives the
 remaining memory to the local executor.
 
+Full mode completes prokaryotic characterization with CheckM1, GTDB-Tk, and
+Symclatron before starting optional gene calling for the same sample. Its native
+outputs remain available if gene calling later fails. The dependency is per
+sample; a failure elsewhere in a multi-sample Nextflow run can still stop the
+workflow.
+
 ## Timeout retries
 
 `READ_QC` and the nested SSUextract `BLAST_ANNOTATE` process get one retry when

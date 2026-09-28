@@ -125,11 +125,14 @@ workflow {
         geneStages = Channel.empty()
         annotationStages = Channel.empty()
         if (!params.skip_gene_calling) {
+            geneRouting = ROUTE_BINS.out.result
+                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+                .join(PROKARYOTE_CHARACTERIZATION.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
+                .map { sampleId, meta, routingDir, prokDir -> tuple(sampleId, meta, routingDir) }
             suppliedSoftmasked = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
                 tuple(meta.sample_id, softmasked)
             }
-            maskingInput = ROUTE_BINS.out.result
-                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+            maskingInput = geneRouting
                 .join(suppliedSoftmasked)
                 .map { sampleId, meta, routingDir, softmasked -> tuple(meta, routingDir, softmasked) }
             REPEAT_MASK_EUKARYOTES(maskingInput)
@@ -156,8 +159,7 @@ workflow {
                 .map { sampleId, meta, maskingDir, rnaDir, proteins -> tuple(meta, maskingDir, rnaDir, proteins) }
             BRAKER3_EUKARYOTES(brakerInput)
 
-            prodigalInput = ROUTE_BINS.out.result
-                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+            prodigalInput = geneRouting
                 .join(VIRAL_SCREEN.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
                 .map { sampleId, meta, routingDir, viralDir -> tuple(meta, routingDir, viralDir) }
             PRODIGAL_GV_GENES(prodigalInput)
