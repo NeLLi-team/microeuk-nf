@@ -31,10 +31,30 @@ process FUNCTIONAL_ANNOTATION {
         if [[ -s 13_functional_annotation/proteins.faa ]]; then
             STATUS=completed
             REASON=
-            pixi run --as-is --manifest-path "${params.annotation_manifest}" --environment eggnog \
-                emapper.py -i 13_functional_annotation/proteins.faa \
-                --output annotations --output_dir 13_functional_annotation/eggnog \
-                --data_dir "${params.eggnog_db}" --cpu ${task.cpus} --override
+            (
+                EGGNOG_DB_DIR=\$(realpath "${params.eggnog_db}")
+                EGGNOG_LOCAL_DIR=\$(mktemp -d "\${SLURM_TMPDIR:-/tmp}/protist-eggnog.XXXXXX")
+                trap 'rm -rf -- "\${EGGNOG_LOCAL_DIR}"' EXIT
+                trap 'exit 143' TERM
+                trap 'exit 130' INT
+                printf 'eggNOG local database directory: %s\n' "\${EGGNOG_LOCAL_DIR}" >&2
+                EGGNOG_DB_BYTES=\$(stat -Lc '%s' "\${EGGNOG_DB_DIR}/eggnog.db")
+                EGGNOG_FREE_BYTES=\$(df -B1 --output=avail "\${EGGNOG_LOCAL_DIR}" | awk 'NR == 2 {print \$1}')
+                if [[ \${EGGNOG_FREE_BYTES} -lt \${EGGNOG_DB_BYTES} ]]; then
+                    printf 'eggNOG staging needs %s bytes; %s bytes are available.\n' \
+                        "\${EGGNOG_DB_BYTES}" "\${EGGNOG_FREE_BYTES}" >&2
+                    exit 1
+                fi
+                cp -- "\${EGGNOG_DB_DIR}/eggnog.db" "\${EGGNOG_LOCAL_DIR}/eggnog.db"
+                for ASSET in "\${EGGNOG_DB_DIR}"/*; do
+                    [[ "\${ASSET##*/}" == eggnog.db ]] && continue
+                    ln -s -- "\${ASSET}" "\${EGGNOG_LOCAL_DIR}/"
+                done
+                pixi run --as-is --manifest-path "${params.annotation_manifest}" --environment eggnog \
+                    emapper.py -i 13_functional_annotation/proteins.faa \
+                    --output annotations --output_dir 13_functional_annotation/eggnog \
+                    --data_dir "\${EGGNOG_LOCAL_DIR}" --cpu ${task.cpus} --override
+            )
             [[ -s 13_functional_annotation/eggnog/annotations.emapper.annotations ]]
 
             pixi run --as-is --manifest-path "${params.interpro_manifest}" \
@@ -62,7 +82,7 @@ process FUNCTIONAL_ANNOTATION {
       "tool_version": "eggNOG-mapper \${EGGNOG_VERSION}; InterProScan \${INTERPRO_VERSION}",
       "database_name": "eggnog_db;interproscan_db",
       "database_version": "eggNOG ${params.eggnog_db_version}; InterPro ${params.interproscan_db_version}",
-      "command": "namespace completed Prodigal-GV and BRAKER3 proteins; remove one terminal stop for annotation; reject remaining stop markers; batch eggNOG-mapper and InterProScan",
+      "command": "namespace completed Prodigal-GV and BRAKER3 proteins; remove one terminal stop for annotation; reject remaining stop markers; stage eggnog.db locally; batch eggNOG-mapper and InterProScan",
       "tools": {
         "eggnog_mapper": {"version": "\${EGGNOG_VERSION}", "database_name": "eggnog_db", "database_version": "${params.eggnog_db_version}", "output": "eggnog/annotations.emapper.annotations"},
         "interproscan": {"version": "\${INTERPRO_VERSION}", "database_name": "interproscan_db", "database_version": "${params.interproscan_db_version}", "output": "interpro"}
