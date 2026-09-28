@@ -19,6 +19,8 @@ process COLLECT_RECORDS {
         platform: meta.platform,
         reads: meta.reads,
         run_mode: meta.run_mode,
+        skip_gene_calling: params.skip_gene_calling,
+        skip_annotation: params.skip_annotation,
         workflow_version: meta.workflow_version,
         source_revision: meta.source_revision,
         assembly: meta.assembly,

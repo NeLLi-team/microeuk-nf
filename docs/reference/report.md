@@ -122,6 +122,12 @@ same-rank taxonomy conflict is a review candidate, not a resolved taxonomic
 decision. A skipped, pending, failed, unrun, or empty BRAKER branch does not
 establish annotation completeness or biological gene absence.
 
+User-disabled gene-calling and annotation stages are recorded as `skipped`,
+with tool version `not_run` and a reason naming the requested switch. Disabled
+stages have no gene or annotation result records. When gene calling runs but
+produces no proteins, the annotation skip retains that separate reason. The
+stage-state and methods tables display these reasons.
+
 A core-only fixture or smoke run proves database and report wiring. It does not
 prove that scientific analysis branches ran or that cataloged genomes are
 complete.

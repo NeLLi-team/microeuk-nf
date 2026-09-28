@@ -120,13 +120,26 @@ def read_samples(path: Path) -> list[SampleInput]:
     return samples
 
 
-def read_registry(path: Path, *, mode: str) -> tuple[Registry, dict[str, Path]]:
+def read_registry(
+    path: Path,
+    *,
+    mode: str,
+    skip_gene_calling: bool = False,
+    skip_annotation: bool = False,
+) -> tuple[Registry, dict[str, Path]]:
     """Validate enabled local references without copying or downloading them."""
     path = path.resolve()
     registry = Registry.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
     resolved: dict[str, Path] = {}
+    excluded: set[str] = set()
+    if skip_gene_calling:
+        excluded.update(("gene_manifest", "braker_manifest", "dfam_db"))
+    if skip_gene_calling or skip_annotation:
+        excluded.update(
+            ("annotation_manifest", "interpro_manifest", "eggnog_db", "interproscan_db")
+        )
     for name, dependency in registry.entries.items():
-        if mode == "core" and dependency.mode == "full":
+        if name in excluded or (mode == "core" and dependency.mode == "full"):
             continue
         if not name.replace("_", "").isalnum():
             raise ValueError(f"invalid dependency parameter: {name}")
@@ -153,18 +166,34 @@ def _check_executables(target: Path, dependency: Dependency) -> None:
 
 
 def prepare_inputs(
-    samples_path: Path, registry_path: Path, output_dir: Path, *, mode: str
+    samples_path: Path,
+    registry_path: Path,
+    output_dir: Path,
+    *,
+    mode: str,
+    skip_gene_calling: bool = False,
+    skip_annotation: bool = False,
 ) -> Path:
     """Write validated TSV and a literal Nextflow dependency configuration."""
     samples = read_samples(samples_path)
-    registry, dependencies = read_registry(registry_path, mode=mode)
+    registry, dependencies = read_registry(
+        registry_path,
+        mode=mode,
+        skip_gene_calling=skip_gene_calling,
+        skip_annotation=skip_annotation,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest = output_dir / "samples.tsv"
     with manifest.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=SAMPLE_COLUMNS, delimiter="\t")
         writer.writeheader()
         writer.writerows(sample.model_dump(mode="json") for sample in samples)
-    config_lines: list[str] = []
+    config_lines: list[str] = [
+        f"params.skip_gene_calling = {str(skip_gene_calling).lower()}",
+        f"params.skip_annotation = {str(skip_annotation).lower()}",
+        f"params.prepared_skip_gene_calling = {str(skip_gene_calling).lower()}",
+        f"params.prepared_skip_annotation = {str(skip_annotation).lower()}",
+    ]
     for name, path in dependencies.items():
         version = registry.entries[name].version
         if any(character in version for character in UNSAFE_PATH_CHARACTERS):
@@ -183,6 +212,8 @@ def prepare_inputs(
     (output_dir / "dependencies.config").write_text(config + "\n", encoding="utf-8")
     provenance = {
         "mode": mode,
+        "skip_gene_calling": skip_gene_calling,
+        "skip_annotation": skip_annotation,
         "registry": registry.model_dump(mode="json"),
         "resolved": {name: str(path) for name, path in dependencies.items()},
         "samples": [sample.model_dump(mode="json") for sample in samples],

@@ -61,6 +61,8 @@ FULL_STAGES = (
     "eggnog_mapper",
     "interproscan",
 )
+GENE_STAGES = {"repeat_masking", "rna_alignment", "prodigal_gv", "braker3"}
+ANNOTATION_STAGES = {"functional_annotation", "eggnog_mapper", "interproscan"}
 PATH_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 CHECKM2_NO_ANNOTATION_NOTE = (
     "CheckM2 ran gene calling and DIAMOND, but DIAMOND returned no annotations; "
@@ -132,6 +134,7 @@ class CollectionContext:
 def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path:
     """Parse every supplied stage; reject stages lacking an implemented parser."""
     sample = json.loads(sample_path.read_text(encoding="utf-8"))
+    disabled = _disabled_stages(sample)
     records: Collections = {name: [] for name in COLLECTIONS}
     context = CollectionContext(sample["sample_id"], sample["run_id"], records)
     records["samples"].append({"sample_id": context.sample_id})
@@ -144,10 +147,31 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
     raw_id = _artifact(context, Path(sample["reads"]), "raw_reads", "dna_reads", None)
     _collect_external_evidence(context, sample)
     for directory in sorted(stages):
-        _collect_stage(context, directory, raw_id)
+        _collect_stage(context, directory, raw_id, disabled)
     present = {row["stage_id"] for row in records["stages"]}
     if sample.get("run_mode") == "core":
-        _record_unrequested(context, present)
+        _record_unrequested(
+            context,
+            set(FULL_STAGES) - present,
+            "Analysis excluded by core validation mode.",
+        )
+    elif sample.get("skip_gene_calling"):
+        children = {
+            f"braker3.{row['bin_id']}"
+            for row in records["bins"]
+            if row["candidate_class"] == "eukaryotic_candidate"
+        }
+        _record_unrequested(
+            context,
+            disabled | children,
+            "Gene calling disabled by user (--skip-gene-calling).",
+        )
+    elif sample.get("skip_annotation"):
+        _record_unrequested(
+            context,
+            disabled,
+            "Functional annotation disabled by user (--skip-annotation).",
+        )
     bundle: Row = {
         "schema_version": "1.0.0",
         "workflow_name": "protist-meta-nf",
@@ -157,6 +181,18 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
     }
     output.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
     return output
+
+
+def _disabled_stages(sample: Row) -> set[str]:
+    """Validate requested switches and identify excluded analysis stages."""
+    for name in ("skip_gene_calling", "skip_annotation"):
+        if not isinstance(sample.get(name, False), bool):
+            raise TypeError(f"{name} must be a boolean")
+    if sample.get("skip_gene_calling"):
+        return GENE_STAGES | ANNOTATION_STAGES
+    if sample.get("skip_annotation"):
+        return ANNOTATION_STAGES.copy()
+    return set()
 
 
 def _collect_external_evidence(context: CollectionContext, sample: Row) -> None:
@@ -180,9 +216,15 @@ def _collect_external_evidence(context: CollectionContext, sample: Row) -> None:
         ]
 
 
-def _collect_stage(context: CollectionContext, directory: Path, raw_id: str) -> None:
+def _collect_stage(
+    context: CollectionContext, directory: Path, raw_id: str, disabled: set[str]
+) -> None:
     metadata = directory / "stage.json"
     manifest = StageManifest.model_validate_json(metadata.read_text(encoding="utf-8"))
+    if manifest.stage in disabled or (
+        "braker3" in disabled and manifest.stage.startswith("braker3.")
+    ):
+        raise ValueError(f"supplied stage {manifest.stage} is disabled by user")
     if manifest.stage == "braker3":
         _collect_manifest(context, directory, manifest, raw_id)
         if manifest.status in {"completed", "pending"}:
@@ -1085,22 +1127,23 @@ def _n50(lengths: list[int]) -> int:
     raise ValueError("cannot calculate N50 from an empty assembly")
 
 
-def _record_unrequested(context: CollectionContext, present: set[object]) -> None:
-    for name in FULL_STAGES:
-        if name not in present:
-            context.records["stages"].append(
-                {
-                    **context.scope(),
-                    "stage_id": name,
-                    "name": name,
-                    "status": "skipped",
-                    "status_reason": "Analysis excluded by core validation mode.",
-                    "tool_name": name,
-                    "tool_version": "not_run",
-                    "input_artifact_ids": [],
-                    "expected_result_keys": [],
-                }
-            )
+def _record_unrequested(
+    context: CollectionContext, stages: set[str], reason: str
+) -> None:
+    for name in sorted(stages):
+        context.records["stages"].append(
+            {
+                **context.scope(),
+                "stage_id": name,
+                "name": name,
+                "status": "skipped",
+                "status_reason": reason,
+                "tool_name": name,
+                "tool_version": "not_run",
+                "input_artifact_ids": [],
+                "expected_result_keys": [],
+            }
+        )
 
 
 def _stage_inputs(context: CollectionContext, stage: str, raw_id: str) -> list[str]:

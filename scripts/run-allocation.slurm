@@ -24,8 +24,38 @@ if [[ $BASH != "$root_bash" || ${CONDA_PREFIX:-} != "$root_prefix" \
         "$root_bash" "$0" "$@"
     exit "$?"
 fi
+skip_gene_calling=false
+skip_annotation=false
+prepare_args=()
+positional_args=()
+for argument in "$@"; do
+    case "$argument" in
+        --skip-gene-calling)
+            if [[ $skip_gene_calling == true ]]; then
+                echo 'Duplicate option: --skip-gene-calling' >&2
+                exit 2
+            fi
+            skip_gene_calling=true
+            prepare_args+=("$argument")
+            ;;
+        --skip-annotation)
+            if [[ $skip_annotation == true ]]; then
+                echo 'Duplicate option: --skip-annotation' >&2
+                exit 2
+            fi
+            skip_annotation=true
+            prepare_args+=("$argument")
+            ;;
+        --*)
+            printf 'Unknown option: %s\n' "$argument" >&2
+            exit 2
+            ;;
+        *) positional_args+=("$argument") ;;
+    esac
+done
+set -- "${positional_args[@]}"
 if [[ $# != 3 && $# != 4 && $# != 6 ]]; then
-    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST]' >&2
+    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--skip-gene-calling] [--skip-annotation]' >&2
     exit 2
 fi
 if [[ ! -f "$project_root/pixi.toml" ]]; then
@@ -135,13 +165,31 @@ pixi run --as-is --manifest-path "$project_root/envs/bbtools/pixi.toml" \
     --environment bbtools bash "$project_root/scripts/require-pixi-tools.sh" \
     quickbin.sh quickclade.sh bbversion.sh java
 pixi run --as-is --manifest-path "$project_root/pixi.toml" \
-    python - "$registry" "$mode" <<'PYTHON'
+    python - "$registry" "$mode" "$skip_gene_calling" "$skip_annotation" \
+    "$run_dir/prepared/inputs.json" "${4:-}" <<'PYTHON'
+import json
 import sys
 from pathlib import Path
 
 from protist_meta.inputs import read_registry
 
-read_registry(Path(sys.argv[1]), mode=sys.argv[2])
+skip_gene_calling = sys.argv[3] == "true"
+skip_annotation = sys.argv[4] == "true"
+if sys.argv[6] in ("resume", "resume-reviewed"):
+    saved = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8"))
+    if (
+        saved.get("skip_gene_calling", False) != skip_gene_calling
+        or saved.get("skip_annotation", False) != skip_annotation
+    ):
+        raise SystemExit(
+            "Resume stage choices differ from saved preparation; use a new run directory."
+        )
+read_registry(
+    Path(sys.argv[1]),
+    mode=sys.argv[2],
+    skip_gene_calling=skip_gene_calling,
+    skip_annotation=skip_annotation,
+)
 PYTHON
 
 if [[ ${4:-} == resume || ${4:-} == resume-reviewed ]]; then
@@ -177,7 +225,7 @@ else
     pixi run --as-is --manifest-path "$project_root/pixi.toml" \
         python -m protist_meta.cli prepare \
         --input "$samples" --registry "$registry" \
-        --output-dir "$run_dir/prepared" --mode "$mode"
+        --output-dir "$run_dir/prepared" --mode "$mode" "${prepare_args[@]}"
     source_revision=$(awk -F "'" '/^params.source_revision = / {print $2}' \
         "$run_dir/prepared/dependencies.config")
     [[ -n "$source_revision" ]]

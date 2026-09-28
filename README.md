@@ -2,9 +2,9 @@
 
 microeuk-nf is a Nextflow workflow for ONT and PacBio HiFi metagenomes that
 contain microbial eukaryotes, bacteria, archaea, and viruses. It performs read
-QC, assembly, binning, independent quality and taxonomy analyses, gene calling,
-and functional annotation. Quality, taxonomy, RNA, and protein evidence
-determine the gene-calling branches. The workflow writes a validated SQLite
+QC, assembly, binning, independent quality and taxonomy analyses, and optional
+gene calling and functional annotation. Quality, taxonomy, RNA, and protein
+evidence determine the gene-calling branches. The workflow writes a validated SQLite
 catalog, an executed notebook, and an HTML report.
 
 ![Workflow schematic from long-read input through assembly, bin characterization, evidence-based routing, gene calling, annotation, and catalog and report publication](docs/assets/workflow.svg)
@@ -36,6 +36,11 @@ environment setup and submission commands. Copy
 [`data/samples.example.tsv`](data/samples.example.tsv) to a file of your choice,
 edit its single row, and keep all 13 columns. Input paths are resolved relative
 to that copied sample sheet.
+
+Both optional stages are enabled by default in full mode. Add
+`--skip-annotation` to the allocation launcher to retain gene models without
+functional annotation, or `--skip-gene-calling` to omit both stages. The catalog
+and report record the disabled stages and their reasons.
 
 ## Documentation
 

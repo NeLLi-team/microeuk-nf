@@ -10,6 +10,7 @@ import pytest
 
 from protist_meta.catalog import build_catalog, validate_bundle
 from protist_meta.collect import collect_records
+from protist_meta.report import build_report
 
 EGGNOG_HEADER = (
     "#query",
@@ -85,6 +86,115 @@ def test_collects_lifted_genes_partial_braker_and_annotations(
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("SELECT COUNT(*) FROM genes").fetchone() == (3,)
         assert connection.execute("SELECT COUNT(*) FROM annotations").fetchone() == (2,)
+
+
+@pytest.mark.parametrize(
+    ("skip_genes", "skip_annotation", "stage_count", "gene_count", "reason"),
+    [
+        (
+            False,
+            True,
+            8,
+            3,
+            "Functional annotation disabled by user (--skip-annotation).",
+        ),
+        (True, False, 4, 0, "Gene calling disabled by user (--skip-gene-calling)."),
+        (True, True, 4, 0, "Gene calling disabled by user (--skip-gene-calling)."),
+    ],
+)
+def test_disabled_stages_survive_collection_catalog_and_report(
+    tmp_path: Path,
+    skip_genes: bool,
+    skip_annotation: bool,
+    stage_count: int,
+    gene_count: int,
+    reason: str,
+) -> None:
+    """Explicit skips preserve upstream results without fabricated products."""
+    sample, stages = _full_fixture(tmp_path)
+    metadata = json.loads(sample.read_text(encoding="utf-8"))
+    metadata.update(skip_gene_calling=skip_genes, skip_annotation=skip_annotation)
+    sample.write_text(json.dumps(metadata), encoding="utf-8")
+
+    bundle_path = collect_records(
+        sample, stages[:stage_count], tmp_path / "bundle.json"
+    )
+    bundle = validate_bundle(bundle_path)
+    database = build_catalog(bundle_path, tmp_path / "catalog.sqlite")
+    notebook = build_report(database, tmp_path / "report")
+
+    skipped = {
+        stage.stage_id: stage for stage in bundle.stages if stage.status == "skipped"
+    }
+    assert {"functional_annotation", "eggnog_mapper", "interproscan"} <= skipped.keys()
+    assert {stage.status_reason for stage in skipped.values()} == {reason}
+    assert {stage.tool_version for stage in skipped.values()} == {"not_run"}
+    assert all(stage.expected_result_keys == [] for stage in skipped.values())
+    assert all(stage.input_artifact_ids == [] for stage in skipped.values())
+    assert (
+        not {artifact.producer_stage_id for artifact in bundle.artifacts}
+        & skipped.keys()
+    )
+    assert len(bundle.genes) == gene_count
+    assert bundle.annotations == []
+    assert len(bundle.bins) == 3
+    assert len(bundle.contigs) == 4
+    assert ("braker3.euk1" in skipped) == skip_genes
+    assert ("braker3.euk2" in skipped) == skip_genes
+    assert notebook.is_file()
+    assert reason in (tmp_path / "report/index.html").read_text(encoding="utf-8")
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute("SELECT COUNT(*) FROM genes").fetchone() == (
+            gene_count,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM annotations").fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    ("flag", "stage_name"),
+    [
+        ("skip_gene_calling", "repeat_masking"),
+        ("skip_gene_calling", "braker3.euk1"),
+        ("skip_gene_calling", "functional_annotation"),
+        ("skip_annotation", "functional_annotation"),
+        ("skip_annotation", "eggnog_mapper"),
+    ],
+)
+def test_disabled_stages_reject_supplied_manifests(
+    tmp_path: Path, flag: str, stage_name: str
+) -> None:
+    """A disabled manifest cannot silently populate supposedly skipped results."""
+    sample, stages = _full_fixture(tmp_path)
+    metadata = json.loads(sample.read_text(encoding="utf-8"))
+    metadata[flag] = True
+    sample.write_text(json.dumps(metadata), encoding="utf-8")
+    stage = _stage(
+        tmp_path / "stages",
+        "disabled",
+        {
+            "stage": stage_name,
+            "status": "completed",
+            "tool": "fixture",
+            "tool_version": "fixture",
+            "command": "fixture",
+        },
+    )
+
+    with pytest.raises(ValueError, match=f"supplied stage {stage_name} is disabled"):
+        collect_records(sample, [*stages[:4], stage], tmp_path / "bundle.json")
+
+
+@pytest.mark.parametrize("flag", ["skip_gene_calling", "skip_annotation"])
+def test_skip_flags_require_json_booleans(tmp_path: Path, flag: str) -> None:
+    """String booleans cannot invert requested execution at collection."""
+    sample, stages = _full_fixture(tmp_path)
+    metadata = json.loads(sample.read_text(encoding="utf-8"))
+    metadata[flag] = "false"
+    sample.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(TypeError, match=f"{flag} must be a boolean"):
+        collect_records(sample, stages, tmp_path / "bundle.json")
 
 
 def test_pending_braker_requires_exact_bin_coverage(tmp_path: Path) -> None:

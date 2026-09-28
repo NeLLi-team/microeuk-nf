@@ -43,6 +43,31 @@ An explicit `genetic_code` selects Prodigal-GV single-genome mode, which accepts
 codes 1–6, 9–16, and 21–25. `auto` uses metagenomic mode and retains each
 prediction's reported code.
 
+## Optional analysis stages
+
+Full mode enables gene calling and functional annotation by default. The
+allocation launcher and `protist-meta prepare` accept these switches:
+
+| Switch | Effect in full mode |
+|---|---|
+| `--skip-annotation` | Retains gene calling; omits eggNOG-mapper and InterProScan functional annotation. |
+| `--skip-gene-calling` | Omits repeat masking, RNA alignment, BRAKER3, dedicated Prodigal-GV gene calling, and functional annotation. |
+
+Both switches default to false. Gene calling cannot be disabled while retaining
+functional annotation. Quality assessment, taxonomic classification, SSU
+analysis, viral screening, and prokaryotic characterization still run. Gene
+prediction used internally by those tools is unaffected. Core mode excludes
+both optional stages regardless of these switches.
+
+Direct Nextflow commands use `--skip_gene_calling` and `--skip_annotation`,
+with underscores. The hyphenated launcher switches do not set these Nextflow
+parameters. Preparation records the requested values in `inputs.json`
+and writes the matching Nextflow configuration. Nextflow rejects an override
+that conflicts with a recorded preparation choice.
+
+All supplied sample paths and evidence-pair fields are validated even when
+their downstream analysis is disabled. Leave unused optional fields empty.
+
 ## Dependency registry
 
 `conf/databases.yaml` is the path and version registry. Relative paths are
@@ -69,6 +94,12 @@ mode. Core mode requires the root and BBTools environments plus the registered
 QuickClade reference. Classification uses local reference files; remote fallback
 is disabled.
 
+Disabled gene calling does not require `gene_manifest`, `braker_manifest`, or
+`dfam_db`. Disabled functional annotation does not require
+`annotation_manifest`, `interpro_manifest`, `eggnog_db`, or `interproscan_db`.
+These entries are excluded from dependency validation and preflight probes.
+All other enabled dependencies remain required.
+
 The Dori setup scripts also use fixed local paths. `scripts/install-tools.slurm`
 probes a fixed eggNOG data directory.
 `scripts/install-custom.slurm` uses fixed InterProScan data and smoke-input
@@ -87,3 +118,8 @@ Resume verifies the saved sample sheet, registry, prepared configuration, and
 source identity. Source identity includes every referenced Pixi manifest and
 lock. External application code changes are not detected when its manifest and
 lock remain unchanged.
+
+Resume requires the same optional-stage switches used for preparation. A
+preparation without these fields means both switches were false. Changing the
+stage selection requires a new run directory, including when using
+`resume-reviewed` for a source repair.

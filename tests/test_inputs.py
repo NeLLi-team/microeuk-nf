@@ -1,7 +1,12 @@
 """Input-boundary checks for sequencing technology and sample identity."""
 
-import pytest
+import json
+from pathlib import Path
 
+import pytest
+import yaml
+
+from protist_meta.cli import main
 from protist_meta.inputs import _source_digest, read_registry, read_samples
 
 
@@ -108,17 +113,158 @@ def test_manifest_rejects_unsupported_explicit_gene_codes(tmp_path, code):
         read_samples(sheet)
 
 
-def test_registry_fails_without_local_reference(tmp_path):
+@pytest.mark.parametrize(
+    ("dependency", "skip_gene_calling", "skip_annotation"),
+    [
+        ("quickclade_ref", False, False),
+        ("quickclade_ref", True, True),
+        ("gene_manifest", False, False),
+        ("gene_manifest", False, True),
+        ("eggnog_db", False, False),
+    ],
+)
+def test_registry_fails_without_local_reference(
+    tmp_path: Path,
+    dependency: str,
+    *,
+    skip_gene_calling: bool,
+    skip_annotation: bool,
+) -> None:
+    """Enabled dependencies and QC references still require local files."""
     registry = tmp_path / "db.yaml"
     registry.write_text(
-        "schema_version: 1.0.0\nentries:\n  quickclade_ref:\n"
+        f"schema_version: 1.0.0\nentries:\n  {dependency}:\n"
         "    path: missing.spectra.gz\n    kind: file\n"
-        "    version: RefSeqA48\n    mode: core\n",
+        "    version: fixture\n    mode: full\n",
         encoding="utf-8",
     )
 
     with pytest.raises(FileNotFoundError, match=r"missing\.spectra"):
-        read_registry(registry, mode="core")
+        read_registry(
+            registry,
+            mode="full",
+            skip_gene_calling=skip_gene_calling,
+            skip_annotation=skip_annotation,
+        )
+
+
+@pytest.mark.parametrize(
+    ("disabled", "skip_gene_calling", "skip_annotation"),
+    [
+        (
+            (
+                "gene_manifest",
+                "braker_manifest",
+                "dfam_db",
+                "annotation_manifest",
+                "interpro_manifest",
+                "eggnog_db",
+                "interproscan_db",
+            ),
+            True,
+            False,
+        ),
+        (
+            (
+                "annotation_manifest",
+                "interpro_manifest",
+                "eggnog_db",
+                "interproscan_db",
+            ),
+            False,
+            True,
+        ),
+    ],
+)
+def test_registry_skips_only_disabled_stage_dependencies(
+    tmp_path: Path,
+    disabled: tuple[str, ...],
+    *,
+    skip_gene_calling: bool,
+    skip_annotation: bool,
+) -> None:
+    """Disabled references may be absent while shared dependencies remain resolved."""
+    reference = tmp_path / "present.spectra.gz"
+    reference.write_text("reference\n", encoding="utf-8")
+    registry = tmp_path / "db.yaml"
+    entries = {
+        name: {"path": "missing", "kind": "file", "version": "fixture", "mode": "full"}
+        for name in disabled
+    }
+    entries["quickclade_ref"] = {
+        "path": reference.name,
+        "kind": "file",
+        "version": "fixture",
+        "mode": "core",
+    }
+    registry.write_text(
+        yaml.safe_dump({"schema_version": "1.0.0", "entries": entries}),
+        encoding="utf-8",
+    )
+
+    _, resolved = read_registry(
+        registry,
+        mode="full",
+        skip_gene_calling=skip_gene_calling,
+        skip_annotation=skip_annotation,
+    )
+
+    assert resolved == {"quickclade_ref": reference}
+
+
+@pytest.mark.parametrize(
+    ("flags", "skip_gene_calling", "skip_annotation"),
+    [
+        ((), False, False),
+        (("--skip-gene-calling",), True, False),
+        (("--skip-annotation",), False, True),
+        (("--skip-gene-calling", "--skip-annotation"), True, True),
+    ],
+)
+def test_prepare_records_requested_stage_choices(
+    tmp_path: Path,
+    flags: tuple[str, ...],
+    *,
+    skip_gene_calling: bool,
+    skip_annotation: bool,
+) -> None:
+    """Preparation records requested flags, including the enabled legacy defaults."""
+    (tmp_path / "reads.fq").write_text("@r\nACGT\n+\nIIII\n", encoding="utf-8")
+    sheet = tmp_path / "samples.tsv"
+    sheet.write_text(
+        "sample_id\tplatform\treads\nS1\tONT\treads.fq\n", encoding="utf-8"
+    )
+    registry = tmp_path / "db.yaml"
+    registry.write_text("schema_version: 1.0.0\nentries: {}\n", encoding="utf-8")
+    output = tmp_path / "prepared"
+
+    status = main(
+        [
+            "prepare",
+            "--input",
+            str(sheet),
+            "--registry",
+            str(registry),
+            "--output-dir",
+            str(output),
+            *flags,
+        ]
+    )
+
+    assert status == 0
+    provenance = json.loads((output / "inputs.json").read_text(encoding="utf-8"))
+    assert provenance["skip_gene_calling"] is skip_gene_calling
+    assert provenance["skip_annotation"] is skip_annotation
+    config = (output / "dependencies.config").read_text(encoding="utf-8")
+    assert f"params.skip_gene_calling = {str(skip_gene_calling).lower()}\n" in config
+    assert f"params.skip_annotation = {str(skip_annotation).lower()}\n" in config
+    assert (
+        f"params.prepared_skip_gene_calling = {str(skip_gene_calling).lower()}\n"
+        in config
+    )
+    assert (
+        f"params.prepared_skip_annotation = {str(skip_annotation).lower()}\n" in config
+    )
 
 
 def test_manifest_rejects_shell_expansion_in_protein_lineage(tmp_path):

@@ -2,7 +2,8 @@
 
 `scripts/run-allocation.slurm` runs one sample inside one Dori allocation.
 Nextflow uses its local executor with `process.maxForks = 1`. The full workflow
-has 17 processes; the core workflow has seven. Process labels in
+has 17 processes with default options, 16 with annotation disabled, and 12 with
+gene calling disabled; the core workflow has seven. Process labels in
 `conf/resources.config` set per-process CPU, memory, and time requests. The
 launcher reserves 24 GB for Nextflow and allocation overhead and gives the
 remaining memory to the local executor.
@@ -57,7 +58,7 @@ reference. Full mode also needs these external workspaces:
   `checkv_manifest`; and
 - the CheckEUK, GVClass, and SSUextract application workspaces.
 
-Install those external workspaces and all registered reference resources
+Install those external workspaces and the reference resources for enabled stages
 separately. The repository scripts do not provision them.
 
 Before every setup or analysis submission wave, check the shared queue:
@@ -119,6 +120,11 @@ distribution named by its source hash manifests and
 `.nellidb_version/version.txt` metadata for version `5.76-107.0` and MD5
 `8c9a8b153e527f8cfc7bf24ee1652d78`. Changing only
 `conf/databases.yaml` does not redirect these setup checks.
+
+The setup commands above install both optional stages. For an installation
+that omits them, use the [dependency contract](../reference/inputs.md#dependency-registry)
+to identify the required environments and resources. The setup scripts do not
+accept the runtime skip switches.
 
 The allocation launcher validates every enabled registry entry and executable.
 Runtime commands set `PIXI_NO_INSTALL=true` and `PIXI_FROZEN=true` and use
@@ -199,12 +205,44 @@ meanings and evidence-pair requirements.
    summary](https://github.com/nelli-team/microeuk-nf/blob/main/SUMMARY.md)
    before interpreting production results.
 
+## Choose gene calling and annotation
+
+Append `--skip-annotation` to the launcher arguments to retain gene models
+without functional annotation. Append `--skip-gene-calling` to omit both.
+The rest of full mode, including bin quality assessment and classification,
+still runs. Keep the same allocation minimums because these analyses remain
+enabled.
+
+For example, after preparing the sample sheet and checking the queue, submit
+a fresh run without either optional stage:
+
+```bash
+run_dir="$project_root/results/my-sample-no-genes"
+receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
+  -p dori --qos=jgi_normal --chdir="$project_root" \
+  --cpus-per-task=32 --mem=384G --time=72:00:00 \
+  scripts/run-allocation.slurm "$samples" "$run_dir" full \
+  --skip-gene-calling) || exit 1
+job_id=${receipt%%;*}
+[[ $job_id =~ ^[0-9]+$ ]] || exit 1
+printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
+```
+
+The catalog, executed notebook, and HTML report are still produced. Their stage
+tables identify the disabled analyses. No gene models or functional annotation
+results are reported for those stages.
+
 ## Resume the same run
 
 Retain the run's `launch/`, `work/`, and `prepared/` directories. Keep the
 source, sample sheet, registry, and referenced Pixi manifests and locks
 unchanged. The launcher rejects an identity mismatch. Changed inputs require a
 new run directory. A reviewed source repair can use the separate procedure below.
+
+Repeat any skip switches from the fresh run after `resume`. For example, a run
+started with `--skip-annotation` requires `full resume --skip-annotation`.
+Changing the switches requires a new run directory. The launcher rejects a
+scope change before starting Nextflow.
 
 Repeat the queue checks, then submit the same run with the fourth argument
 `resume`:
@@ -229,9 +267,15 @@ Use this procedure only after reviewing the exact source changes and confirming
 which completed scientific stages remain valid. It does not determine whether
 arbitrary code or dependency updates are compatible with cached results.
 
+Keep the original skip switches after the two source digests. A reviewed source
+repair does not permit changing the run's stage selection.
+
 The launcher reruns `ROUTE_BINS`, `COLLECT_RECORDS`, `BUILD_CATALOG` and
 `BUILD_REPORT`. Nextflow decides cache eligibility for other tasks from its
 normal task hashes. A changed task script can therefore repeat scientific work.
+In particular, changing `FULL_PREFLIGHT` can also invalidate downstream tasks
+because its output is an input to read processing. Do not assume a source repair
+will retain the scientific cache.
 Changes to shared Python helpers or external tools need their own cache review;
 the four forced tasks alone do not cover such changes.
 

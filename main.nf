@@ -25,6 +25,15 @@ workflow {
     if (!(params.run_mode in ['core', 'full'])) {
         error "--run_mode must be core or full, received: ${params.run_mode}"
     }
+    for (name in ['skip_gene_calling', 'skip_annotation']) {
+        if (!(params[name] instanceof Boolean)) {
+            error "--${name} must be a boolean, received: ${params[name]}"
+        }
+        def prepared = params["prepared_${name}"]
+        if (prepared != null && (!(prepared instanceof Boolean) || prepared != params[name])) {
+            error "--${name} differs from the prepared run; prepare a new run with the requested options."
+        }
+    }
 
     runId = (params.run_id ?: workflow.runName).toString().replaceAll(/[^A-Za-z0-9_.-]/, '_')
     samples = Channel
@@ -113,48 +122,60 @@ workflow {
         ROUTE_BINS(routeInput)
         PROKARYOTE_CHARACTERIZATION(ROUTE_BINS.out.result)
 
-        suppliedSoftmasked = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
-            tuple(meta.sample_id, softmasked)
+        geneStages = Channel.empty()
+        annotationStages = Channel.empty()
+        if (!params.skip_gene_calling) {
+            suppliedSoftmasked = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+                tuple(meta.sample_id, softmasked)
+            }
+            maskingInput = ROUTE_BINS.out.result
+                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+                .join(suppliedSoftmasked)
+                .map { sampleId, meta, routingDir, softmasked -> tuple(meta, routingDir, softmasked) }
+            REPEAT_MASK_EUKARYOTES(maskingInput)
+
+            rnaInputBase = ASSEMBLE.out.result
+                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+                .join(REPEAT_MASK_EUKARYOTES.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
+            suppliedRna = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+                tuple(meta.sample_id, rna)
+            }
+            rnaInput = rnaInputBase
+                .join(suppliedRna)
+                .map { sampleId, meta, assemblyDir, maskingDir, rna -> tuple(meta, assemblyDir, maskingDir, rna) }
+            MAP_RNA_EVIDENCE(rnaInput)
+
+            brakerInputBase = REPEAT_MASK_EUKARYOTES.out.result
+                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+                .join(MAP_RNA_EVIDENCE.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
+            suppliedProteins = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+                tuple(meta.sample_id, proteins)
+            }
+            brakerInput = brakerInputBase
+                .join(suppliedProteins)
+                .map { sampleId, meta, maskingDir, rnaDir, proteins -> tuple(meta, maskingDir, rnaDir, proteins) }
+            BRAKER3_EUKARYOTES(brakerInput)
+
+            prodigalInput = ROUTE_BINS.out.result
+                .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+                .join(VIRAL_SCREEN.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
+                .map { sampleId, meta, routingDir, viralDir -> tuple(meta, routingDir, viralDir) }
+            PRODIGAL_GV_GENES(prodigalInput)
+
+            geneStages = REPEAT_MASK_EUKARYOTES.out.result.mix(
+                MAP_RNA_EVIDENCE.out.result,
+                BRAKER3_EUKARYOTES.out.result,
+                PRODIGAL_GV_GENES.out.result
+            )
+            if (!params.skip_annotation) {
+                annotationInput = PRODIGAL_GV_GENES.out.result
+                    .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+                    .join(BRAKER3_EUKARYOTES.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
+                    .map { sampleId, meta, prodigalDir, brakerDir -> tuple(meta, prodigalDir, brakerDir) }
+                FUNCTIONAL_ANNOTATION(annotationInput)
+                annotationStages = FUNCTIONAL_ANNOTATION.out.result
+            }
         }
-        maskingInput = ROUTE_BINS.out.result
-            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
-            .join(suppliedSoftmasked)
-            .map { sampleId, meta, routingDir, softmasked -> tuple(meta, routingDir, softmasked) }
-        REPEAT_MASK_EUKARYOTES(maskingInput)
-
-        rnaInputBase = ASSEMBLE.out.result
-            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
-            .join(REPEAT_MASK_EUKARYOTES.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-        suppliedRna = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
-            tuple(meta.sample_id, rna)
-        }
-        rnaInput = rnaInputBase
-            .join(suppliedRna)
-            .map { sampleId, meta, assemblyDir, maskingDir, rna -> tuple(meta, assemblyDir, maskingDir, rna) }
-        MAP_RNA_EVIDENCE(rnaInput)
-
-        brakerInputBase = REPEAT_MASK_EUKARYOTES.out.result
-            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
-            .join(MAP_RNA_EVIDENCE.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-        suppliedProteins = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
-            tuple(meta.sample_id, proteins)
-        }
-        brakerInput = brakerInputBase
-            .join(suppliedProteins)
-            .map { sampleId, meta, maskingDir, rnaDir, proteins -> tuple(meta, maskingDir, rnaDir, proteins) }
-        BRAKER3_EUKARYOTES(brakerInput)
-
-        prodigalInput = ROUTE_BINS.out.result
-            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
-            .join(VIRAL_SCREEN.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-            .map { sampleId, meta, routingDir, viralDir -> tuple(meta, routingDir, viralDir) }
-        PRODIGAL_GV_GENES(prodigalInput)
-
-        annotationInput = PRODIGAL_GV_GENES.out.result
-            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
-            .join(BRAKER3_EUKARYOTES.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-            .map { sampleId, meta, prodigalDir, brakerDir -> tuple(meta, prodigalDir, brakerDir) }
-        FUNCTIONAL_ANNOTATION(annotationInput)
 
         stageDirs = preflight.mix(
             READ_QC.out.result,
@@ -165,11 +186,8 @@ workflow {
             VIRAL_SCREEN.out.result,
             ROUTE_BINS.out.result,
             PROKARYOTE_CHARACTERIZATION.out.result,
-            REPEAT_MASK_EUKARYOTES.out.result,
-            MAP_RNA_EVIDENCE.out.result,
-            BRAKER3_EUKARYOTES.out.result,
-            PRODIGAL_GV_GENES.out.result,
-            FUNCTIONAL_ANNOTATION.out.result
+            geneStages,
+            annotationStages
         )
     } else {
         stageDirs = preflight.mix(

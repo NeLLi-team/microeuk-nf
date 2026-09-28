@@ -22,7 +22,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     match args.command:
         case "prepare":
-            prepare_inputs(args.input, args.registry, args.output_dir, mode=args.mode)
+            prepare_inputs(
+                args.input,
+                args.registry,
+                args.output_dir,
+                mode=args.mode,
+                skip_gene_calling=args.skip_gene_calling,
+                skip_annotation=args.skip_annotation,
+            )
         case "collect":
             collect_records(args.sample_json, args.stages, args.output)
         case "prepare-gene-inputs":
@@ -76,6 +83,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     prepare.add_argument(
         "--mode", choices=("core", "full"), default="full", help="Analysis scope"
+    )
+    prepare.add_argument(
+        "--skip-gene-calling",
+        action="store_true",
+        help="Skip dedicated gene calling and functional annotation",
+    )
+    prepare.add_argument(
+        "--skip-annotation",
+        action="store_true",
+        help="Skip functional annotation while retaining gene calling",
     )
     collect = commands.add_parser("collect", help="Normalize exact stage outputs")
     collect.add_argument(
