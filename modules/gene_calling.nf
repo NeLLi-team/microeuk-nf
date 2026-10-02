@@ -300,8 +300,7 @@ process REPEAT_MASK_EUKARYOTES {
                 exit 2
             elif grep -Fxq 'No families identified.  Perhaps the database is too small' "\${REPEATMODELER_LOG}" \
                 && { grep -Fxq 'RepeatScout/RECON discovery complete: 0 families found' "\${REPEATMODELER_LOG}" \
-                    || { [[ \${RECON_ONLY} -eq 1 ]] \
-                        && grep -Fxq 'RepeatScout/RECON discovery complete:  families found' "\${REPEATMODELER_LOG}" \
+                    || { grep -Fxq 'RepeatScout/RECON discovery complete:  families found' "\${REPEATMODELER_LOG}" \
                         && grep -Eq '^Round Time: .* Elapsed Time : 0 families discovered[.]\$' "\${REPEATMODELER_LOG}" \
                         && awk '/^ -- Input Database Coverage: [0-9]+ bp out of [0-9]+ bp [(] 100[.]00 % [)]\$/ \
                             && \$5 > 0 && \$5 == \$9 {covered=1} END {exit !covered}' "\${REPEATMODELER_LOG}"; }; }; then
