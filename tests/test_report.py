@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -14,8 +15,8 @@ from jupyter_client.kernelspec import KernelSpecManager
 from nbclient import NotebookClient
 from nbformat.notebooknode import NotebookNode
 
-from protist_meta.catalog import build_catalog
-from protist_meta.report import build_report
+from protist_meta.catalog import SCHEMA_SQL, build_catalog
+from protist_meta.report import PROVENANCE_CODE, build_report
 
 FIXTURE = Path(__file__).parent / "fixtures" / "catalog.json"
 EXPECTED_COUNTS = {
@@ -38,6 +39,109 @@ EXPECTED_COUNTS = {
     "genes": 1,
     "annotations": 1,
 }
+
+
+def test_stage_provenance_counts_scale_without_crossing_stage_identities() -> None:
+    stage_query = next(
+        ast.literal_eval(node.args[1])
+        for node in ast.walk(ast.parse(PROVENANCE_CODE))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "show"
+        and ast.literal_eval(node.args[0]) == "Stage states and methods"
+    )
+    stage_keys = [
+        ("S1", "R1", "empty"),
+        ("S1", "R1", "expected"),
+        ("S1", "R1", "inputs"),
+        ("S1", "R1", "shared"),
+        ("S1", "R2", "shared"),
+        ("S2", "R1", "shared"),
+    ]
+    input_rows = [
+        ("S1", "R1", "shared", position, str(position)) for position in range(1024)
+    ] + [
+        ("S1", "R1", "inputs", 0, "single"),
+        ("S1", "R2", "shared", 0, "single"),
+        ("S2", "R1", "shared", 0, "first"),
+        ("S2", "R1", "shared", 1, "second"),
+    ]
+    expected_rows = [
+        ("S1", "R1", "shared", "genes", str(position)) for position in range(1024)
+    ] + [
+        ("S1", "R1", "expected", "genes", "same"),
+        ("S1", "R1", "expected", "annotations", "same"),
+        ("S1", "R2", "shared", "qc", "same"),
+        ("S2", "R1", "shared", "genes", "same"),
+        ("S2", "R1", "shared", "annotations", "same"),
+        ("S2", "R1", "shared", "qc", "same"),
+    ]
+    with sqlite3.connect(":memory:") as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.executescript(SCHEMA_SQL)
+        connection.executescript(
+            """
+            INSERT INTO samples (sample_id) VALUES ('S1'), ('S2');
+            INSERT INTO runs (sample_id, run_id, platform)
+            VALUES ('S1', 'R1', 'ont'), ('S1', 'R2', 'ont'), ('S2', 'R1', 'ont');
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO stages (sample_id, run_id, stage_id, name, status,
+                                tool_name, tool_version, command)
+            VALUES (?, ?, ?, 'fixture', 'completed', 'fixture', '1', 'fixture')
+            """,
+            stage_keys,
+        )
+        connection.executemany(
+            """
+            INSERT INTO artifacts (sample_id, run_id, artifact_id, kind,
+                                   path, sha256, size_bytes)
+            VALUES (?, ?, ?, 'other', ?, ?, 0)
+            """,
+            [
+                (sample, run, artifact, artifact, "0" * 64)
+                for sample, run, _stage, _position, artifact in input_rows
+            ],
+        )
+        connection.executemany(
+            "INSERT INTO stage_inputs VALUES (?, ?, ?, ?, ?)", input_rows
+        )
+        connection.executemany(
+            "INSERT INTO stage_expected_keys VALUES (?, ?, ?, ?, ?)", expected_rows
+        )
+        # Bound work deterministically: a join of both children exhausts this budget.
+        connection.set_progress_handler(lambda: 1, 1_000_000)
+        cursor = connection.execute(stage_query)
+        rows = cursor.fetchall()
+        connection.set_progress_handler(None, 0)
+
+    assert [column[0] for column in cursor.description] == [
+        "sample_id",
+        "run_id",
+        "stage_id",
+        "name",
+        "status",
+        "status_reason",
+        "notes",
+        "tool_name",
+        "tool_version",
+        "command",
+        "database_name",
+        "database_version",
+        "database_sha256",
+        "input_artifacts",
+        "expected_records",
+    ]
+    assert [row[:3] + row[-2:] for row in rows] == [
+        ("S1", "R1", "empty", 0, 0),
+        ("S1", "R1", "expected", 0, 2),
+        ("S1", "R1", "inputs", 1, 0),
+        ("S1", "R1", "shared", 1024, 1024),
+        ("S1", "R2", "shared", 1, 1),
+        ("S2", "R1", "shared", 2, 3),
+    ]
 
 
 def test_build_report_executes_fixture_and_exports_html(tmp_path: Path) -> None:

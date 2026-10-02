@@ -476,14 +476,15 @@ stages = show(
     SELECT s.sample_id, s.run_id, s.stage_id, s.name, s.status,
            s.status_reason, s.notes, s.tool_name, s.tool_version, s.command,
            s.database_name, s.database_version, s.database_sha256,
-           COUNT(DISTINCT i.position) AS input_artifacts,
-           COUNT(DISTINCT e.collection || ':' || e.record_id) AS expected_records
+           (SELECT COUNT(DISTINCT i.position)
+            FROM stage_inputs i
+            WHERE i.sample_id = s.sample_id AND i.run_id = s.run_id
+              AND i.stage_id = s.stage_id) AS input_artifacts,
+           (SELECT COUNT(DISTINCT e.collection || ':' || e.record_id)
+            FROM stage_expected_keys e
+            WHERE e.sample_id = s.sample_id AND e.run_id = s.run_id
+              AND e.stage_id = s.stage_id) AS expected_records
     FROM stages s
-    LEFT JOIN stage_inputs i USING (sample_id, run_id, stage_id)
-    LEFT JOIN stage_expected_keys e USING (sample_id, run_id, stage_id)
-    GROUP BY s.sample_id, s.run_id, s.stage_id, s.name, s.status,
-             s.status_reason, s.notes, s.tool_name, s.tool_version, s.command,
-             s.database_name, s.database_version, s.database_sha256
     ORDER BY s.sample_id, s.run_id, s.stage_id
     """,
     "No workflow stages are cataloged.",
