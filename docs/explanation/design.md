@@ -49,10 +49,11 @@ from the unbinned viral gene input.
 RepeatModeler supplies the repeat library unless a softmasked assembly is provided.
 The workflow confirms a RepeatScout no-seed failure by rerunning its native child
 command on the sampled sequence, then retries RepeatModeler once with `-skipRS`.
+The same retry applies to a verified empty-refinement failure when every retained
+RepeatScout family has valid range evidence and fewer than five native-parsed instances.
 The logs and masking provenance record this RECON-only discovery route.
 A completed run with no discovered families retains the input sequence.
-A blank family count is accepted only for this confirmed
-recovery, with explicit zero-family round output and full input coverage.
+A blank family count requires explicit zero-family round output and full input coverage.
 No discovered families does not establish that the assembly lacks repeats.
 Other native failures stop the workflow. Stage logs survive task scratch cleanup.
 

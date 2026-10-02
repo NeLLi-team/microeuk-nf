@@ -188,39 +188,86 @@ process REPEAT_MASK_EUKARYOTES {
             printf '%s\n' "\${REPEATMODELER_STATUS}" > "../../logs/\${BIN}.repeatmodeler.initial.exitcode"
             if [[ \${REPEATMODELER_STATUS} -ne 0 ]]; then
                 reject_native_child_crashes "\${REPEATMODELER_LOG}"
-                if [[ \${REPEATMODELER_STATUS} -ne 1 ]] \
-                    || ! grep -Fxq 'build_lmer_table failed. Exit code 256' "\${REPEATMODELER_LOG}"; then
-                    cat "\${REPEATMODELER_LOG}" >&2
-                    exit "\${REPEATMODELER_STATUS}"
-                fi
                 mapfile -t SCOUT_SAMPLES < <(find . -mindepth 3 -maxdepth 3 -type f \
                     -path './RM_*/round-1/sampleDB-1.fa' -size +0c -print)
-                mapfile -t LMER_SETTINGS < <(awk '
-                    /^   - RepeatScout: Running build_lmer_table [(] l = [0-9]+, min = [0-9]+ [)][.][.]\$/ {
-                        gsub(",", "", \$8); print \$8, \$11
-                    }' "\${REPEATMODELER_LOG}")
-                if [[ \${#SCOUT_SAMPLES[@]} -ne 1 || \${#LMER_SETTINGS[@]} -ne 1 ]]; then
-                    printf '%s\n' 'Cannot identify one failed RepeatScout sample and its native l/min settings.' >&2
-                    exit "\${REPEATMODELER_STATUS}"
-                fi
-                read -r LMER_LENGTH LMER_MINIMUM <<< "\${LMER_SETTINGS[0]}"
-                PROBE="../../logs/\${BIN}.repeatscout-probe"
-                cp "\${SCOUT_SAMPLES[0]}" "\${PROBE}.fa"
-                printf 'build_lmer_table -l %s -min %s -sequence %s.fa -freq %s.lfreq\n' \
-                    "\${LMER_LENGTH}" "\${LMER_MINIMUM}" "\${PROBE}" "\${PROBE}" > "\${PROBE}.command.txt"
-                PROBE_STATUS=0
-                pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
-                    build_lmer_table -l "\${LMER_LENGTH}" -min "\${LMER_MINIMUM}" \
-                    -sequence "\${PROBE}.fa" -freq "\${PROBE}.lfreq" \
-                    > "\${PROBE}.stdout" 2> "\${PROBE}.stderr" || PROBE_STATUS=\$?
-                printf '%s\n' "\${PROBE_STATUS}" > "\${PROBE}.exitcode"
-                tr '\\r' '\\n' < "\${PROBE}.stderr" > "\${PROBE}.stderr.normalized"
-                reject_native_child_crashes "\${PROBE}.stdout"
-                reject_native_child_crashes "\${PROBE}.stderr"
-                if [[ \${PROBE_STATUS} -ne 1 || -e "\${PROBE}.lfreq" ]] \
-                    || ! grep -Fxq 'OOPS no good lmers' "\${PROBE}.stderr.normalized"; then
-                    cat "\${PROBE}.stderr" >&2
-                    printf '%s\n' 'RepeatScout failure did not confirm the no-seed condition.' >&2
+                if [[ \${REPEATMODELER_STATUS} -eq 2 && \${#SCOUT_SAMPLES[@]} -eq 1 ]]; then
+                    SCOUT_ROUND=\$(dirname "\$(realpath "\${SCOUT_SAMPLES[0]}")")
+                    FILTERED="\${SCOUT_SAMPLES[0]}.rscons.filtered"
+                    RANGES="\${SCOUT_SAMPLES[0]}.rscons-ranges.tsv"
+                    FILTERED_COUNT=\$(awk '
+                        /^   - RepeatScout: Running filtering stage[.][.] [1-9][0-9]* families remaining\$/ {
+                            count++; families=\$6
+                        }
+                        END {if (count == 1) print families}
+                    ' "\${REPEATMODELER_LOG}")
+                    # RepeatModeler 2.0.9 skips RS families below five parsed instances,
+                    # then searches the empty refined-cons.fa without checking it.
+                    if [[ -z "\${FILTERED_COUNT}" || ! -s "\${FILTERED}" \
+                        || ! -f "\${SCOUT_ROUND}/refined-cons.fa" || -s "\${SCOUT_ROUND}/refined-cons.fa" ]] \
+                        || ! cmp -s "\${FILTERED}" "\${SCOUT_ROUND}/consensi.fa" \
+                        || ! grep -Eq '^   - Refining 0 families[.][.][.] [0-9:]+ [(]hh:mm:ss[)] Elapsed Time\$' "\${REPEATMODELER_LOG}" \
+                        || ! grep -Fxq "   - Redundant Families and Large Satellite Filtering.. NCBIBlastSearchEngine::search: Error...compressed subject database (\${SCOUT_ROUND}/refined-cons.fa) does not exist!" "\${REPEATMODELER_LOG}" \
+                        || ! awk -F '\\t' -v expected="\${FILTERED_COUNT}" '
+                            FNR == NR {
+                                if (/^>/) {
+                                    id=substr(\$0, 2); sub(/[[:space:]].*\$/, "", id)
+                                    if (id !~ /^R=[0-9]+\$/ || id in families) bad=1
+                                    families[id]=0; total++
+                                }
+                                next
+                            }
+                            {
+                                if (NF != 8 || \$1 == "" || \$1 ~ /[[:space:]]/ || \$2 !~ /^-?[0-9]+\$/ \
+                                    || \$3 !~ /^[0-9]+\$/ || \$4 !~ /^R=[0-9]+\$/ \
+                                    || \$5 !~ /^[+-]\$/ || \$6 !~ /^[0-9]+\$/ \
+                                    || \$7 !~ /^[0-9]+\$/ || \$8 !~ /^[0-9]+\$/) bad=1
+                                # The native unsigned-coordinate parser ignores negative starts.
+                                if (\$4 in families) seen[\$4]++
+                                if (\$4 in families && \$0 ~ /^[^[:space:]]+\\t[0-9]+\\t[0-9]+/) families[\$4]++
+                            }
+                            END {
+                                for (id in families) if (!seen[id] || families[id] >= 5) bad=1
+                                exit (bad || total != expected)
+                            }
+                        ' "\${FILTERED}" "\${RANGES}"; then
+                        cat "\${REPEATMODELER_LOG}" >&2
+                        printf '%s\n' 'RepeatScout failure did not confirm empty refinement below the five-instance cutoff.' >&2
+                        exit "\${REPEATMODELER_STATUS}"
+                    fi
+                    RECOVERY_REASON='Confirmed RepeatScout empty refinement: all filtered families have fewer than five native-parsed instances'
+                elif [[ \${REPEATMODELER_STATUS} -eq 1 ]] \
+                    && grep -Fxq 'build_lmer_table failed. Exit code 256' "\${REPEATMODELER_LOG}"; then
+                    mapfile -t LMER_SETTINGS < <(awk '
+                        /^   - RepeatScout: Running build_lmer_table [(] l = [0-9]+, min = [0-9]+ [)][.][.]\$/ {
+                            gsub(",", "", \$8); print \$8, \$11
+                        }' "\${REPEATMODELER_LOG}")
+                    if [[ \${#SCOUT_SAMPLES[@]} -ne 1 || \${#LMER_SETTINGS[@]} -ne 1 ]]; then
+                        printf '%s\n' 'Cannot identify one failed RepeatScout sample and its native l/min settings.' >&2
+                        exit "\${REPEATMODELER_STATUS}"
+                    fi
+                    read -r LMER_LENGTH LMER_MINIMUM <<< "\${LMER_SETTINGS[0]}"
+                    PROBE="../../logs/\${BIN}.repeatscout-probe"
+                    cp "\${SCOUT_SAMPLES[0]}" "\${PROBE}.fa"
+                    printf 'build_lmer_table -l %s -min %s -sequence %s.fa -freq %s.lfreq\n' \
+                        "\${LMER_LENGTH}" "\${LMER_MINIMUM}" "\${PROBE}" "\${PROBE}" > "\${PROBE}.command.txt"
+                    PROBE_STATUS=0
+                    pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
+                        build_lmer_table -l "\${LMER_LENGTH}" -min "\${LMER_MINIMUM}" \
+                        -sequence "\${PROBE}.fa" -freq "\${PROBE}.lfreq" \
+                        > "\${PROBE}.stdout" 2> "\${PROBE}.stderr" || PROBE_STATUS=\$?
+                    printf '%s\n' "\${PROBE_STATUS}" > "\${PROBE}.exitcode"
+                    tr '\\r' '\\n' < "\${PROBE}.stderr" > "\${PROBE}.stderr.normalized"
+                    reject_native_child_crashes "\${PROBE}.stdout"
+                    reject_native_child_crashes "\${PROBE}.stderr"
+                    if [[ \${PROBE_STATUS} -ne 1 || -e "\${PROBE}.lfreq" ]] \
+                        || ! grep -Fxq 'OOPS no good lmers' "\${PROBE}.stderr.normalized"; then
+                        cat "\${PROBE}.stderr" >&2
+                        printf '%s\n' 'RepeatScout failure did not confirm the no-seed condition.' >&2
+                        exit "\${REPEATMODELER_STATUS}"
+                    fi
+                    RECOVERY_REASON='Confirmed RepeatScout no-seed outcome'
+                else
+                    cat "\${REPEATMODELER_LOG}" >&2
                     exit "\${REPEATMODELER_STATUS}"
                 fi
                 mkdir failed_repeatscout
@@ -228,7 +275,7 @@ process REPEAT_MASK_EUKARYOTES {
                 mv "\${REPEATMODELER_LOG}" "../../logs/\${BIN}.repeatmodeler.initial.log"
                 RECON_ONLY=1
                 RAN_RECON_ONLY=1
-                printf '%s\n' 'Confirmed RepeatScout no-seed outcome; retrying RepeatModeler -skipRS (RECON-only discovery).' \
+                printf '%s; retrying RepeatModeler -skipRS (RECON-only discovery).\n' "\${RECOVERY_REASON}" \
                     > "../../logs/\${BIN}.repeatmodeler.recovery.log"
                 REPEATMODELER_STATUS=0
                 pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" --environment repeatmasker \
@@ -364,7 +411,7 @@ process REPEAT_MASK_EUKARYOTES {
         COMMAND='RepeatModeler -threads ${task.cpus}; RepeatMasker -pa ${repeatMaskerWorkers} -xsmall; verify exact sequence identity ignoring mask case'
     fi
     if [[ \${RAN_RECON_ONLY} -eq 1 ]]; then
-        COMMAND="\${COMMAND}; confirmed RepeatScout no-seed recovery: RepeatModeler -skipRS -threads ${task.cpus} (RECON-only discovery)"
+        COMMAND="\${COMMAND}; confirmed RepeatScout recovery: RepeatModeler -skipRS -threads ${task.cpus} (RECON-only discovery)"
     fi
     cat > 09_repeat_masking/stage.json <<JSON
     {
