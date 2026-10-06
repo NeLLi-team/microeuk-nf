@@ -10,6 +10,7 @@ process READ_QC {
     tuple val(meta), path('01_read_qc'), emit: result
 
     script:
+    def compressionThreads = Math.max(task.cpus - 2, 1)
     def minLength = meta.platform == 'ont' ? params.ont_min_length : params.hifi_min_length
     def filterCommand = meta.platform == 'ont' \
         ? "chopper -q ${params.ont_min_quality} -l ${minLength} --threads 1" \
@@ -28,7 +29,7 @@ process READ_QC {
     fi | pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
         ${filterCommand} \
       | pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
-        pigz -p 1 > 01_read_qc/filtered.fastq.gz
+        pigz -p ${compressionThreads} > 01_read_qc/filtered.fastq.gz
 
     pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
         seqkit stats -j 1 -T 01_read_qc/filtered.fastq.gz > 01_read_qc/filtered_stats.tsv
