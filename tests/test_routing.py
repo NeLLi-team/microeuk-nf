@@ -355,6 +355,10 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
     assert evidence["archaeal"]["candidate_class"] == "bacterial_archaeal_candidate"
     assert evidence["archaeal"]["gvclass_domain"] == "d_ARC"
     assert evidence["archaeal"]["gvclass_taxonomy_confidence"] == "low_support"
+    assert evidence["archaeal"]["reason"] == (
+        "GVClass supports a prokaryotic route without a "
+        "supported eukaryotic or viral conflict"
+    )
     assert json.loads(evidence["archaeal"]["supporting_evidence"]) == [
         "GVClass:d_ARC;p_Nanobdellota"
     ]
@@ -421,11 +425,8 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
         (
             "d__Bacteria",
             ("", [], []),
-            ["QuickClade:d__Bacteria"],
-            (
-                "conflicting",
-                ["organelle evidence conflicts with supported routing evidence"],
-            ),
+            [],
+            ("unresolved", []),
         ),
         (
             "",
@@ -468,7 +469,7 @@ def test_route_bins_uses_concordant_and_physically_linked_evidence(tmp_path):
             ),
         ),
     ],
-    ids=["alone", "prokaryotic", "eukaryotic", "viral"],
+    ids=["alone", "quickclade-only", "eukaryotic", "viral"],
 )
 def test_route_bins_retains_organelle_evidence_without_promoting_a_route(
     tmp_path: Path,
@@ -542,11 +543,7 @@ def test_route_bins_retains_organelle_evidence_without_promoting_a_route(
         (
             "d__Bacteria",
             "",
-            (
-                "unresolved",
-                "conflicting",
-                ["prokaryotic evidence conflicts with viral evidence"],
-            ),
+            ("viral", "viral_candidate", []),
         ),
         (
             "",
@@ -558,7 +555,7 @@ def test_route_bins_retains_organelle_evidence_without_promoting_a_route(
             ),
         ),
     ],
-    ids=["alone", "prokaryotic-conflict", "eukaryotic-conflict"],
+    ids=["alone", "quickclade-only", "eukaryotic-conflict"],
 )
 def test_route_bins_applies_viral_rules_to_phage(
     tmp_path: Path,
@@ -605,6 +602,7 @@ def test_route_bins_applies_viral_rules_to_phage(
     assert evidence["candidate_class"] == expected_class
     assert evidence["gvclass_domain"] == "d_PHAGE"
     assert evidence["gvclass_taxonomy_majority"] == "d_PHAGE;p_example"
+    assert evidence["quickclade_lineage"] == quickclade_lineage
     assert evidence["gvclass_taxonomy_confidence"] == "low_support"
     assert "GVClass:d_PHAGE;p_example" in json.loads(evidence["supporting_evidence"])
     assert json.loads(evidence["conflicting_evidence"]) == expected_conflicts
@@ -782,3 +780,85 @@ def test_route_bins_rejects_an_unknown_gvclass_domain(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unsupported GVClass domain: d_UNKNOWN"):
         route_bins(sample_path, bin_dir, directories, tmp_path / "routing")
+
+
+@pytest.mark.parametrize(
+    ("gvclass_lineage", "reason", "viruses", "expected"),
+    [
+        (
+            "d_EUK;p_example",
+            "eukaryotic evidence does not meet the combined support rule",
+            [],
+            ("unresolved", "unresolved", []),
+        ),
+        ("d_", "no supported routing evidence", [], ("unresolved", "unresolved", [])),
+        (
+            "d_",
+            "GVClass or linked whole-contig geNomad evidence supports a viral route",
+            [{"seq_name": "contig_3", "virus_score": "0.99", "taxonomy": "Viruses"}],
+            ("viral", "viral_candidate", ["geNomad:contig_3"]),
+        ),
+        (
+            "d_EUK;p_example",
+            "GVClass or linked whole-contig geNomad evidence supports a viral route",
+            [{"seq_name": "contig_3", "virus_score": "0.99", "taxonomy": "Viruses"}],
+            ("viral", "viral_candidate", ["geNomad:contig_3"]),
+        ),
+    ],
+)
+def test_route_bins_ignores_quickclade_routing(
+    tmp_path: Path,
+    gvclass_lineage: str,
+    reason: str,
+    viruses: list[dict[str, str]],
+    expected: tuple[str, str, list[str]],
+) -> None:
+    """Route bin_3-like blank lineages; Pfam 69.936/BOM 65.25 are not taxonomy."""
+    route, candidate_class, supporting = expected
+    sample_path = tmp_path / "sample.json"
+    _sample(sample_path)
+    bin_dir = tmp_path / "bins"
+    bin_dir.mkdir()
+    (bin_dir / "bin_3.fa").write_text(">contig_3\nACGT\n", encoding="utf-8")
+    directories = _evidence_dirs(tmp_path / "native")
+    _write_reports(
+        directories,
+        quickclade=[
+            {
+                "#QueryName": "bin_3.fa",
+                "Q_Bases": "4",
+                "lineage": "d__Bacteria;k__Bacillati",
+                "ConfLevel": "kingdom:97.7",
+                "Confidence": "d:100;k:97.7",
+            }
+        ],
+        checkeuk=[{"genome": "bin_3", "status": "ok", "lineage": ""}],
+        gvclass=[
+            {
+                "query": "bin_3",
+                "taxonomy_majority": gvclass_lineage,
+                "taxonomy_confidence": "low_support",
+                "domain": "",
+            }
+        ],
+        ssu=[],
+        viruses=viruses,
+    )
+
+    output = route_bins(sample_path, bin_dir, directories, tmp_path / "routing")
+    evidence = _read_evidence(output / "evidence.tsv")["bin_3"]
+
+    assert evidence["route"] == route
+    assert evidence["candidate_class"] == candidate_class
+    assert evidence["reason"] == reason
+    assert evidence["quickclade_lineage"] == "d__Bacteria;k__Bacillati"
+    assert evidence["quickclade_confidence"] == "d:100;k:97.7"
+    assert evidence["checkeuk_status"] == "ok"
+    assert evidence["checkeuk_lineage"] == ""
+    assert evidence["gvclass_taxonomy_majority"] == gvclass_lineage
+    assert json.loads(evidence["supporting_evidence"]) == supporting
+    assert json.loads(evidence["conflicting_evidence"]) == []
+    assert list(output.glob("*/*.fna")) == [output / route / "bin_3.fna"]
+    assert (output / route / "bin_3.fna").read_bytes() == (
+        bin_dir / "bin_3.fa"
+    ).read_bytes()

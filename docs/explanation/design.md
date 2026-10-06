@@ -25,13 +25,16 @@ stop the workflow. Completed predictions require one result per input bin.
 GVClass uses the database path from the registry. Its native run receipt must
 match that resolved path and the declared version before results are accepted.
 
-QuickClade prokaryotic calls can support a prokaryotic route. Its eukaryotic
-labels stay in the evidence table but do not establish a eukaryotic route or
-veto a viral route. A eukaryotic route requires a resolved CheckEUK lineage
-plus GVClass eukaryotic support or a linked eukaryotic SSU locus.
+QuickClade labels remain comparison evidence and cannot establish or veto a
+route. A prokaryotic route requires GVClass bacterial or archaeal support.
+A eukaryotic route requires a resolved CheckEUK lineage plus GVClass eukaryotic
+support or a linked eukaryotic SSU locus. CheckEUK completeness alone does not
+establish taxonomy. GVClass eukaryotic support with an unresolved CheckEUK lineage
+does not establish a eukaryotic route; without viral support the bin stays
+unresolved for review.
 
 GVClass `d_PLASTID` and `d_MITO` calls retain an unresolved route because the
-workflow has no organelle gene caller. Supported eukaryotic, prokaryotic, or viral
+workflow has no organelle gene caller. Supported eukaryotic or viral
 evidence changes their candidate class from unresolved to conflicting.
 The ledger retains the organelle lineage, confidence, and independent evidence.
 GVClass `d_PHAGE` calls use the viral routing and conflict rules. Native confidence

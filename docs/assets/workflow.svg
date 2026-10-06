@@ -124,7 +124,7 @@
       <rect x="840" y="285" width="290" height="89" rx="12" fill="#ffffff" stroke="#52758e" stroke-width="2.5"/>
       <text x="985" y="318" font-size="19" font-weight="700" fill="#14324a">QuickClade evidence</text>
       <text x="985" y="343" font-size="15" fill="#4b5966">local reference only</text>
-      <text x="985" y="363" font-size="14" fill="#5f6d78">prokaryotic calls may support routing</text>
+      <text x="985" y="363" font-size="14" fill="#5f6d78">comparison evidence, not routing</text>
     </g>
   </g>
 
