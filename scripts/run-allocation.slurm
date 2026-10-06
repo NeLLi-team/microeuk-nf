@@ -26,10 +26,24 @@ if [[ $BASH != "$root_bash" || ${CONDA_PREFIX:-} != "$root_prefix" \
 fi
 skip_gene_calling=false
 skip_annotation=false
+ont_min_length=''
 prepare_args=()
 positional_args=()
-for argument in "$@"; do
+while [[ $# -gt 0 ]]; do
+    argument=$1
     case "$argument" in
+        --ont-min-length)
+            if [[ -n "$ont_min_length" ]]; then
+                echo 'Duplicate option: --ont-min-length' >&2
+                exit 2
+            fi
+            if [[ $# -lt 2 || ! $2 =~ ^[1-9][0-9]*$ ]]; then
+                echo '--ont-min-length requires a positive integer in bases.' >&2
+                exit 2
+            fi
+            ont_min_length=$2
+            shift
+            ;;
         --skip-gene-calling)
             if [[ $skip_gene_calling == true ]]; then
                 echo 'Duplicate option: --skip-gene-calling' >&2
@@ -52,10 +66,11 @@ for argument in "$@"; do
             ;;
         *) positional_args+=("$argument") ;;
     esac
+    shift
 done
 set -- "${positional_args[@]}"
 if [[ $# != 3 && $# != 4 && $# != 6 ]]; then
-    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--skip-gene-calling] [--skip-annotation]' >&2
+    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--ont-min-length BASES] [--skip-gene-calling] [--skip-annotation]' >&2
     exit 2
 fi
 if [[ ! -f "$project_root/pixi.toml" ]]; then
@@ -122,6 +137,13 @@ if [[ ${4:-} == resume || ${4:-} == resume-reviewed ]]; then
     [[ -s "$run_dir/prepared/dependencies.config" ]]
     [[ -s "$run_dir/prepared/inputs.json" ]]
     [[ -s "$identity" ]]
+    saved_ont_min_length=$(awk -F '\t' '$1 == "ont_min_length" {print $2}' "$identity")
+    if [[ "$saved_ont_min_length" != "$ont_min_length" ]]; then
+        printf 'Resume ONT minimum length differs (saved: %s; requested: %s). %s\n' \
+            "${saved_ont_min_length:-none}" "${ont_min_length:-none}" \
+            'Repeat the saved override, omit the option if none was saved, or use a new run directory.' >&2
+        exit 2
+    fi
     resume_args=(-resume)
 elif [[ -e "$run_dir" ]]; then
     echo 'Run directory already exists; use resume for its saved Nextflow session.' >&2
@@ -241,6 +263,9 @@ else
         printf 'inputs_json_sha256\t%s\n' \
             "$(sha256sum "$run_dir/prepared/inputs.json" | awk '{print $1}')"
         printf 'source_revision\t%s\n' "$source_revision"
+        if [[ -n "$ont_min_length" ]]; then
+            printf 'ont_min_length\t%s\n' "$ont_min_length"
+        fi
     } > "$identity"
 fi
 mkdir -p "$run_dir/executions"
@@ -299,6 +324,10 @@ receipt = {
 receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 PYTHON
 fi
+filter_args=()
+if [[ -n "$ont_min_length" ]]; then
+    filter_args=(--ont_min_length "$ont_min_length")
+fi
 cd "$run_dir/launch"
 pixi run --as-is --manifest-path "$project_root/pixi.toml" \
     nextflow -log "$execution_dir/nextflow.log" run "$project_root/main.nf" \
@@ -306,7 +335,7 @@ pixi run --as-is --manifest-path "$project_root/pixi.toml" \
     -c "$run_dir/prepared/dependencies.config" -c "$execution_dir/allocation.config" \
     -work-dir "$run_dir/work" \
     --input "$run_dir/prepared/samples.tsv" --outdir "$run_dir/results" \
-    --run_mode "$mode" "${resume_args[@]}"
+    --run_mode "$mode" "${filter_args[@]}" "${resume_args[@]}"
 test -s "$run_dir/results/catalog/protist-meta.sqlite"
 test -s "$run_dir/results/report/report.executed.ipynb"
 test -s "$run_dir/results/report/index.html"

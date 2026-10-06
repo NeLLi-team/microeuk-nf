@@ -211,6 +211,18 @@ meanings and evidence-pair requirements.
    summary](https://github.com/nelli-team/microeuk-nf/blob/main/SUMMARY.md)
    before interpreting production results.
 
+## Set the ONT minimum read length
+
+Append `--ont-min-length 1000` to the allocation launcher arguments to retain
+ONT reads of at least 1,000 bases. Chopper applies the existing Phred quality
+threshold of 10. Without this option, `nextflow.config` supplies the length
+default of 500 bases. The option does not change PacBio HiFi filtering.
+
+Repeat the same option on `resume` or `resume-reviewed`. The launcher saves
+the explicit length in `prepared/resume-identity.tsv` and rejects a changed,
+added, or omitted override before starting Nextflow. Use a new run directory to
+change the filter.
+
 ## Choose gene calling and annotation
 
 Append `--skip-annotation` to the launcher arguments to retain gene models
