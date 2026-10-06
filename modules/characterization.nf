@@ -168,6 +168,7 @@ process SSU_EXTRACT {
     }
     process {
         withName: BLAST_ANNOTATE {
+            cpus = ${Math.min(8, nestedCpus)}
             time = { [8.h * task.attempt, params.max_time as nextflow.util.Duration].min() }
             maxRetries = 1
             errorStrategy = {
