@@ -731,34 +731,56 @@ process PRODIGAL_GV_GENES {
     if [[ \${SOURCE_COUNT} -gt 0 ]]; then
         STATUS=completed
         REASON=
+        PIDS=()
+        SOURCES=()
+        drain_batch() {
+            local failed=0 index
+            for index in "\${!PIDS[@]}"; do
+                if ! wait "\${PIDS[\${index}]}"; then
+                    printf 'Prodigal-gv source failed: %s\n' "\${SOURCES[\${index}]}" >&2
+                    failed=1
+                fi
+            done
+            PIDS=()
+            SOURCES=()
+            return "\${failed}"
+        }
         while IFS=\$'\t' read -r SOURCE CATEGORY RELATIVE_FASTA; do
-            FASTA="12_prodigal_gv/inputs/\${RELATIVE_FASTA}"
-            [[ -s "\${FASTA}" ]]
-            MODE_ARGS=(-p meta)
-            if [[ "\${CATEGORY}" == prokaryotic_bin \
-                && -n "${meta.genetic_code}" && "${meta.genetic_code}" != auto ]]; then
-                MODE_ARGS=(-p single -g "${meta.genetic_code}")
-            fi
-            pixi run --as-is --manifest-path "${params.gene_manifest}" --environment prodigal-gv \
-                prodigal-gv -i "\${FASTA}" -a "12_prodigal_gv/proteins/\${SOURCE}.faa" \
-                -d "12_prodigal_gv/genes/\${SOURCE}.fna" -f gff \
-                -o "12_prodigal_gv/gff/\${SOURCE}.gff" "\${MODE_ARGS[@]}"
-            [[ -s "12_prodigal_gv/gff/\${SOURCE}.gff" ]]
-            grep -q '^# Model Data:.*transl_table=' "12_prodigal_gv/gff/\${SOURCE}.gff"
-            [[ -e "12_prodigal_gv/proteins/\${SOURCE}.faa" ]]
-            [[ -e "12_prodigal_gv/genes/\${SOURCE}.fna" ]]
-            CDS_COUNT=\$(awk '!/^#/ && NF {count++} END {print count + 0}' \
-                "12_prodigal_gv/gff/\${SOURCE}.gff")
-            if [[ \${CDS_COUNT} -gt 0 ]]; then
-                [[ -s "12_prodigal_gv/proteins/\${SOURCE}.faa" ]]
-                [[ -s "12_prodigal_gv/genes/\${SOURCE}.fna" ]]
-            else
-                [[ ! -s "12_prodigal_gv/proteins/\${SOURCE}.faa" ]]
-                [[ ! -s "12_prodigal_gv/genes/\${SOURCE}.fna" ]]
+            (
+                FASTA="12_prodigal_gv/inputs/\${RELATIVE_FASTA}"
+                [[ -s "\${FASTA}" ]]
+                MODE_ARGS=(-p meta)
+                if [[ "\${CATEGORY}" == prokaryotic_bin \
+                    && -n "${meta.genetic_code}" && "${meta.genetic_code}" != auto ]]; then
+                    MODE_ARGS=(-p single -g "${meta.genetic_code}")
+                fi
+                pixi run --as-is --manifest-path "${params.gene_manifest}" --environment prodigal-gv \
+                    prodigal-gv -i "\${FASTA}" -a "12_prodigal_gv/proteins/\${SOURCE}.faa" \
+                    -d "12_prodigal_gv/genes/\${SOURCE}.fna" -f gff \
+                    -o "12_prodigal_gv/gff/\${SOURCE}.gff" "\${MODE_ARGS[@]}"
+                [[ -s "12_prodigal_gv/gff/\${SOURCE}.gff" ]]
+                grep -q '^# Model Data:.*transl_table=' "12_prodigal_gv/gff/\${SOURCE}.gff"
+                [[ -e "12_prodigal_gv/proteins/\${SOURCE}.faa" ]]
+                [[ -e "12_prodigal_gv/genes/\${SOURCE}.fna" ]]
+                CDS_COUNT=\$(awk '!/^#/ && NF {count++} END {print count + 0}' \
+                    "12_prodigal_gv/gff/\${SOURCE}.gff")
+                if [[ \${CDS_COUNT} -gt 0 ]]; then
+                    [[ -s "12_prodigal_gv/proteins/\${SOURCE}.faa" ]]
+                    [[ -s "12_prodigal_gv/genes/\${SOURCE}.fna" ]]
+                else
+                    [[ ! -s "12_prodigal_gv/proteins/\${SOURCE}.faa" ]]
+                    [[ ! -s "12_prodigal_gv/genes/\${SOURCE}.fna" ]]
+                fi
+            ) &
+            PIDS+=(\$!)
+            SOURCES+=("\${SOURCE}")
+            if [[ \${#PIDS[@]} -ge ${task.cpus} ]]; then
+                drain_batch || exit 1
             fi
         done < <(awk -F '\t' \
             'NR > 1 && \$6 == "included" {print \$1 "\t" \$2 "\t" \$4}' \
             12_prodigal_gv/inputs/sources.tsv)
+        drain_batch || exit 1
     fi
     if ! VERSION_OUTPUT=\$(pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" \
         --environment prodigal-gv prodigal-gv -v 2>&1); then

@@ -40,9 +40,9 @@ done
 proof="$project_root/tasks/validation-${SLURM_JOB_ID}"
 mkdir -p "$proof"
 pixi run --as-is bash scripts/require-pixi-tools.sh \
-    python nextflow java ruff mkdocs awk bash basename cat cmp comm cp date diff \
+    python nextflow java ruff mkdocs awk bash basename cat chmod cmp comm cp date diff \
     dirname env find grep head ln ls mkdir mktemp mv ps realpath rm sed sha256sum \
-    sleep sort tail tee touch tr uname uniq wc \
+    sleep sort tail tee touch tr uname uniq wc xargs \
     > "$proof/pixi-tools.tsv"
 pixi run --as-is python scripts/generate_models.py > "$proof/generate.log" 2>&1
 mapfile -t sources < <(find src scripts tests -type f -name '*.py' | LC_ALL=C sort)
@@ -54,6 +54,10 @@ if ! pixi run --as-is python scripts/generate_models.py --check > "$proof/schema
     status=1
 fi
 if ! pixi run --as-is python -m pytest -q > "$proof/pytest.log" 2>&1; then
+    status=1
+fi
+if ! pixi run --as-is bash tests/check_prodigal_parallel.sh "$proof/prodigal-parallel" \
+    > "$proof/prodigal-parallel.log" 2>&1; then
     status=1
 fi
 if ! pixi run --as-is mkdocs build --strict > "$proof/docs.log" 2>&1; then
