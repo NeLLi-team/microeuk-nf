@@ -789,20 +789,30 @@ def test_route_bins_rejects_an_unknown_gvclass_domain(tmp_path: Path) -> None:
             "d_EUK;p_example",
             "eukaryotic evidence does not meet the combined support rule",
             [],
-            ("unresolved", "unresolved", []),
+            ("unresolved", "unresolved", [], []),
         ),
-        ("d_", "no supported routing evidence", [], ("unresolved", "unresolved", [])),
+        (
+            "d_",
+            "no supported routing evidence",
+            [],
+            ("unresolved", "unresolved", [], []),
+        ),
         (
             "d_",
             "GVClass or linked whole-contig geNomad evidence supports a viral route",
             [{"seq_name": "contig_3", "virus_score": "0.99", "taxonomy": "Viruses"}],
-            ("viral", "viral_candidate", ["geNomad:contig_3"]),
+            ("viral", "viral_candidate", ["geNomad:contig_3"], []),
         ),
         (
             "d_EUK;p_example",
-            "GVClass or linked whole-contig geNomad evidence supports a viral route",
+            "supported evidence conflicts across routes",
             [{"seq_name": "contig_3", "virus_score": "0.99", "taxonomy": "Viruses"}],
-            ("viral", "viral_candidate", ["geNomad:contig_3"]),
+            (
+                "unresolved",
+                "conflicting",
+                ["geNomad:contig_3"],
+                ["eukaryotic evidence conflicts with viral evidence"],
+            ),
         ),
     ],
 )
@@ -811,10 +821,10 @@ def test_route_bins_ignores_quickclade_routing(
     gvclass_lineage: str,
     reason: str,
     viruses: list[dict[str, str]],
-    expected: tuple[str, str, list[str]],
+    expected: tuple[str, str, list[str], list[str]],
 ) -> None:
     """Route bin_3-like blank lineages; Pfam 69.936/BOM 65.25 are not taxonomy."""
-    route, candidate_class, supporting = expected
+    route, candidate_class, supporting, conflicting = expected
     sample_path = tmp_path / "sample.json"
     _sample(sample_path)
     bin_dir = tmp_path / "bins"
@@ -857,7 +867,7 @@ def test_route_bins_ignores_quickclade_routing(
     assert evidence["checkeuk_lineage"] == ""
     assert evidence["gvclass_taxonomy_majority"] == gvclass_lineage
     assert json.loads(evidence["supporting_evidence"]) == supporting
-    assert json.loads(evidence["conflicting_evidence"]) == []
+    assert json.loads(evidence["conflicting_evidence"]) == conflicting
     assert list(output.glob("*/*.fna")) == [output / route / "bin_3.fna"]
     assert (output / route / "bin_3.fna").read_bytes() == (
         bin_dir / "bin_3.fa"

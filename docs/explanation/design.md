@@ -27,11 +27,14 @@ match that resolved path and the declared version before results are accepted.
 
 QuickClade labels remain comparison evidence and cannot establish or veto a
 route. A prokaryotic route requires GVClass bacterial or archaeal support.
-A eukaryotic route requires a resolved CheckEUK lineage plus GVClass eukaryotic
-support or a linked eukaryotic SSU locus. CheckEUK completeness alone does not
-establish taxonomy. GVClass eukaryotic support with an unresolved CheckEUK lineage
-does not establish a eukaryotic route; without viral support the bin stays
-unresolved for review.
+A eukaryotic route requires CheckEUK status `ok` with a resolved lineage plus
+GVClass eukaryotic support or a linked eukaryotic SSU locus. CheckEUK completeness
+alone does not establish taxonomy. GVClass eukaryotic support with an unresolved
+CheckEUK lineage leaves the bin unresolved for review. Viral support conflicts
+with independent eukaryotic evidence: CheckEUK status `ok` with a resolved lineage,
+GVClass `d_EUK`, or a physically linked RF01960 locus with Eukaryota taxonomy.
+Such bins remain unresolved with candidate class `conflicting`, including when
+GVClass `d_EUK` accompanies a blank CheckEUK lineage.
 
 GVClass `d_PLASTID` and `d_MITO` calls retain an unresolved route because the
 workflow has no organelle gene caller. Supported eukaryotic or viral

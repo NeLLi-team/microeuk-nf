@@ -108,7 +108,7 @@ class Decision:
 class Signals:
     """Normalized support flags used by the routing policy."""
 
-    checkeuk_resolved: bool
+    has_eukaryotic_evidence: bool
     quickclade: str | None
     gvclass: str | None
     eukaryotic: bool
@@ -342,9 +342,7 @@ def _decide(evidence: BinEvidence) -> Decision:
                 "a eukaryotic route"
             )
         )
-    elif signals.viral and (
-        signals.prokaryotic or signals.checkeuk_resolved or evidence.eukaryotic_ssu
-    ):
+    elif signals.viral and (signals.prokaryotic or signals.has_eukaryotic_evidence):
         route = "unresolved"
         candidate_class = "conflicting"
         reason = "supported evidence conflicts across routes"
@@ -366,11 +364,7 @@ def _decide(evidence: BinEvidence) -> Decision:
         candidate_class = "unresolved"
         reason = (
             "eukaryotic evidence does not meet the combined support rule"
-            if (
-                signals.checkeuk_resolved
-                or signals.gvclass == "eukaryotic"
-                or evidence.eukaryotic_ssu
-            )
+            if signals.has_eukaryotic_evidence
             else "no supported routing evidence"
         )
     return Decision(route, candidate_class, reason, supporting, conflicting)
@@ -388,7 +382,7 @@ def _signals(evidence: BinEvidence) -> Signals:
     prok_supported = gvclass == "prokaryotic"
     virus_supported = gvclass == "viral" or linked_virus
     return Signals(
-        checkeuk_resolved,
+        checkeuk_resolved or gvclass == "eukaryotic" or linked_ssu,
         quickclade,
         gvclass,
         euk_supported,
@@ -442,9 +436,7 @@ def _conflicting(
         items.append(f"QuickClade:{evidence.quickclade['lineage']}")
     if signals.viral and signals.prokaryotic:
         items.append("prokaryotic evidence conflicts with viral evidence")
-    if signals.viral and (
-        evidence.checkeuk["lineage"].strip() or evidence.eukaryotic_ssu
-    ):
+    if signals.viral and signals.has_eukaryotic_evidence:
         items.append("eukaryotic evidence conflicts with viral evidence")
     if signals.eukaryotic and signals.gvclass == "prokaryotic":
         items.append(f"GVClass:{evidence.gvclass['taxonomy_majority']}")
