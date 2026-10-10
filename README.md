@@ -5,7 +5,7 @@ contain microbial eukaryotes, bacteria, archaea, and viruses. It performs read
 QC, assembly, binning, independent quality and taxonomy analyses, and optional
 gene calling and functional annotation. Quality, taxonomy, RNA, and protein
 evidence determine the gene-calling branches. The workflow writes a validated SQLite
-catalog, an executed notebook, and an HTML report.
+catalog, native visualization bundles, an executed notebook, and an HTML report.
 
 ![Workflow schematic from long-read input through assembly, bin characterization, evidence-based routing, gene calling, annotation, and catalog and report publication](docs/assets/workflow.svg)
 

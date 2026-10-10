@@ -11,6 +11,7 @@ from protist_meta.collect import collect_records
 from protist_meta.gene_commands import merge_proteins
 from protist_meta.gene_inputs import prepare_gene_inputs
 from protist_meta.inputs import prepare_inputs
+from protist_meta.visualization import export_visualization
 
 __all__ = ["main"]
 
@@ -55,6 +56,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         case "catalog":
             _build_catalog(args.records, args.output)
+        case "visualization":
+            export_visualization(args.catalog, args.output_dir)
         case "report":
             from protist_meta.report import (  # noqa: PLC0415  # Avoid notebook startup cost for input validation.
                 build_report,
@@ -154,6 +157,17 @@ def _parser() -> argparse.ArgumentParser:
         "--execution-provenance",
         type=Path,
         help="Reviewed-source recovery receipt to validate and embed",
+    )
+    visualization = commands.add_parser(
+        "visualization", help="Portable native evidence"
+    )
+    exports = visualization.add_subparsers(dest="operation", required=True)
+    export = exports.add_parser("export", help="Export native visualization bundles")
+    export.add_argument(
+        "--catalog", type=Path, required=True, help="Validated SQLite catalog"
+    )
+    export.add_argument(
+        "--output-dir", type=Path, required=True, help="Bundle directory"
     )
     return parser
 

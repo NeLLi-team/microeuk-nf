@@ -112,3 +112,29 @@ process BUILD_REPORT {
     printf '<!doctype html><title>stub</title>\n' > report/index.html
     """
 }
+
+process BUILD_VISUALIZATION {
+    tag 'visualization'
+    label 'report'
+    publishDir "${params.outdir}", mode: 'copy'
+
+    input:
+    path catalog_dir
+
+    output:
+    path 'visualization', emit: result
+
+    script:
+    """
+    "${params.cli}" visualization export \
+        --catalog "${catalog_dir}/protist-meta.sqlite" \
+        --output-dir visualization
+    [[ -s visualization/index.json ]]
+    """
+
+    stub:
+    """
+    mkdir -p visualization
+    printf '%s\\n' '{"schema_version":1,"bundles":[]}' > visualization/index.json
+    """
+}

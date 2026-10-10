@@ -140,3 +140,41 @@ SHA256 differs from the report source, or when `catalog_metadata` does not
 contain exactly one row. SQLite query failures and notebook cell errors are
 propagated to the caller. Output files are written only after notebook
 execution succeeds.
+
+## Native visualization bundles
+
+`protist-meta visualization export --catalog results/catalog/protist-meta.sqlite
+--output-dir results/visualization` writes one schema-version-1 JSON bundle per
+sample, run and assembly. `BUILD_VISUALIZATION` runs after `BUILD_CATALOG`, beside
+`BUILD_REPORT`, before workflow work-directory cleanup. Export existing catalogs
+while their registered native reports remain available.
+
+Bundles retain the native sample and technical run metadata, assembly inventory,
+read statistics, bins, contigs, disjoint memberships, quality, taxonomy, SSU,
+viral calls and phenotype records. Genes, proteins and sequence payloads are
+excluded. Quality rows include the producing tool and database versions.
+`evidence` retains native routing, CheckEUK, GVClass, GTDB-Tk, CheckM and QuickClade
+report fields, statuses, model support and reliability. Missing tools remain
+unassessed. Display categories belong to the consuming application.
+
+`mapping` selects its retained-read denominator from the native `read_qc` stage
+and records counts from the registered coverage table: qualifying primary alignments to assembly contigs, binned
+contigs and unbinned contigs, plus retained reads without a qualifying alignment.
+The last quantity includes low-MAPQ alignments. It is not an unmapped-read count
+or a cell-abundance estimate. Per-contig and per-bin `numreads` and `covbases`
+retain their native units. Policy fields come from the recorded commands;
+unknown policy or unavailable coverage has explicit status and null counts.
+Zero counts remain zero. Memberships, assembly lengths, coverage identifiers and
+read-count conservation are checked before export.
+
+Each bundle contains source receipts with artifact identifiers, SHA256 digests
+and private source paths. Registered small reports are digest-checked before
+reading; a mismatch stops export. An unavailable registered QC or taxonomy report
+from a completed stage stops export. For other stage states, missing native
+evidence retains `status: unavailable`, its reason and the original `stage_status`.
+Missing coverage remains nullable with an explicit unavailable status.
+The bundle is portable after export and does not need the original files for
+consumption. Public consumers must omit private paths and native commands.
+`bundle_id` and `content_sha256` identify the canonical JSON content before those
+two fields are added. The output directory also contains an `index.json` with
+bundle filenames and file digests. Export does not publish or select accepted runs.

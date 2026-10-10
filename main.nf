@@ -16,7 +16,7 @@ include {
     PRODIGAL_GV_GENES
 } from './modules/gene_calling'
 include { FUNCTIONAL_ANNOTATION } from './modules/annotation'
-include { COLLECT_RECORDS; BUILD_CATALOG; BUILD_REPORT } from './modules/catalog'
+include { COLLECT_RECORDS; BUILD_CATALOG; BUILD_REPORT; BUILD_VISUALIZATION } from './modules/catalog'
 
 workflow {
     if (!params.input) {
@@ -210,4 +210,5 @@ workflow {
         .collect()
     BUILD_CATALOG(allRecords)
     BUILD_REPORT(BUILD_CATALOG.out.result)
+    BUILD_VISUALIZATION(BUILD_CATALOG.out.result)
 }
