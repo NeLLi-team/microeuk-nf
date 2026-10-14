@@ -20,7 +20,13 @@ The workflow accepts this exit only when the native log, empty DIAMOND files
 and predicted proteins for every input bin confirm the condition. It records
 `skipped/no_diamond_annotations` and retains the diagnostic files, command and
 exit code. CheckM2 quality estimates remain unavailable. Other CheckM2 failures
-stop the workflow. Completed predictions require one result per input bin.
+stop the workflow. A successful prediction can omit a bin with no called proteins
+only when its native empty-file warning and regular zero-byte protein file agree
+with the missing report entry. Protein files must cover every input bin, and
+reported and proven omitted bins together must cover those same bins exactly.
+The completed stage records `<bin_id>: no_called_proteins` in its notes and
+retains the native logs, exit code, and empty protein files. The bin remains in
+the catalog without a CheckM2 QC row; reported estimates remain unchanged.
 
 GVClass uses the database path from the registry. Its native run receipt must
 match that resolved path and the declared version before results are accepted.

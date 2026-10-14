@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from protist_meta.annotation_parsers import parse_eggnog, parse_interpro
+from protist_meta.checkm2 import validate_checkm2_coverage
 from protist_meta.gene_inputs import lift_prodigal_gene, load_prodigal_origins
 from protist_meta.gene_parsers import parse_braker3, parse_prodigal_gv
 from protist_meta.quality_parsers import ParsedRows, parse_quality
@@ -468,6 +469,32 @@ def _collect_quality(
         gaps.update(parsed.evidence_gaps)
         _append_quality(context, report_path, manifest.stage, parsed)
     expected = _quality_bins(context, manifest.stage)
+    if manifest.stage == "checkm2":
+        output = path.parent
+        exit_path = output.parent / "exit_code.txt"
+        omitted = validate_checkm2_coverage(
+            output, expected, int(exit_path.read_text(encoding="utf-8").strip())
+        )
+        observed.extend(sorted(omitted))
+        gaps.update(f"{identifier}: no_called_proteins" for identifier in omitted)
+        if omitted:
+            evidence = [
+                output / "checkm2.log",
+                output.parent / "command.log",
+                exit_path,
+            ]
+            evidence.extend(
+                output / "protein_files" / f"{identifier}.faa"
+                for identifier in sorted(omitted)
+            )
+            for evidence_path in evidence:
+                _artifact(
+                    context,
+                    evidence_path,
+                    f"checkm2.evidence.{evidence_path.name}",
+                    "other",
+                    manifest.stage,
+                )
     if len(observed) != len(set(observed)) or set(observed) != expected:
         raise ValueError(
             f"{manifest.stage} output does not cover exactly its input bins"

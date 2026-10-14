@@ -63,8 +63,9 @@ process ALL_BIN_SCREEN {
         printf '%s\n' "\${CHECKM2_EXIT}" > 04_all_bin_screen/checkm2/exit_code.txt
         cat 04_all_bin_screen/checkm2/command.log
         if [[ \${CHECKM2_EXIT} -eq 0 ]]; then
-            [[ -s 04_all_bin_screen/checkm2/output/quality_report.tsv ]]
-            [[ \$(awk 'END {print NR - 1}' 04_all_bin_screen/checkm2/output/quality_report.tsv) -eq \${BIN_COUNT} ]]
+            pixi run --as-is --manifest-path "${params.core_manifest}" \
+                python -m protist_meta.checkm2 04_all_bin_screen/checkm2/output \
+                "${binning_dir}/bins"
         elif bash "${projectDir}/scripts/checkm2-no-annotations.sh" "\${CHECKM2_EXIT}" \
             04_all_bin_screen/checkm2/output "${binning_dir}/bins"; then
             CHECKM2_STATUS=skipped

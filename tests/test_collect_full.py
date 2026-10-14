@@ -217,18 +217,30 @@ def test_collects_checkm2_contamination_above_100(tmp_path: Path) -> None:
             "tool": "CheckM2",
             "tool_version": "1.1.0",
             "command": "checkm2 predict",
-            "outputs": {"result": "quality_report.tsv"},
+            "outputs": {"result": "output/quality_report.tsv"},
         },
     )
+    (screen / "output/protein_files").mkdir(parents=True)
     _write(
-        screen / "quality_report.tsv",
+        screen / "output/quality_report.tsv",
         "Name\tCompleteness\tContamination\tCompleteness_Model_Used\n"
         "euk1\t90\t103.62\tNeural Network (Specific Model)\n"
         "euk2\t80\t101.71\tNeural Network (Specific Model)\n"
         "prok\t70\t101.77\tNeural Network (Specific Model)\n",
     )
+    _write(screen / "exit_code.txt", "0\n")
+    _write(screen / "command.log", "Prediction complete\n")
+    _write(screen / "output/checkm2.log", "Prediction complete\n")
+    _write(screen / "output/protein_files/euk1.faa", ">euk1_1\nMPEPTIDE\n")
+    _write(screen / "output/protein_files/euk2.faa", ">euk2_1\nMPEPTIDE\n")
+    _write(screen / "output/protein_files/prok.faa", ">prok_1\nMPEPTIDE\n")
     bundle_path = collect_records(
         sample, [*stages[:3], screen], tmp_path / "bundle.json"
+    )
+    bundle = validate_bundle(bundle_path)
+    assert not any(
+        artifact.artifact_id.startswith("checkm2.evidence.")
+        for artifact in bundle.artifacts
     )
     database = build_catalog(bundle_path, tmp_path / "catalog.sqlite")
 
@@ -1012,3 +1024,62 @@ def _stage(root: Path, name: str, manifest: dict[str, object]) -> Path:
 def _write(path: Path, text: str) -> Path:
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def test_collects_checkm2_empty_protein_omission(tmp_path: Path) -> None:
+    """Completed CheckM2 retains all bins and scores only native reported bins."""
+    sample, stages = _full_fixture(tmp_path)
+    screen = _checkm2_no_annotation_fixture(tmp_path / "stages")
+    metadata = json.loads((screen / "stage.json").read_text(encoding="utf-8"))
+    metadata["tools"]["checkm2"].update(
+        status="completed", reason=None, output="checkm2/output/quality_report.tsv"
+    )
+    _write(screen / "stage.json", json.dumps(metadata))
+    _write(screen / "checkm2/exit_code.txt", "0\n")
+    warning = (
+        "[10/14/2026 03:21:22 AM] WARNING: Skipping protein file "
+        "checkm2/output/protein_files/euk2.faa as it was empty.\n"
+    )
+    _write(screen / "checkm2/command.log", warning)
+    _write(screen / "checkm2/output/checkm2.log", warning)
+    _write(screen / "checkm2/output/protein_files/euk2.faa", "")
+    _write(
+        screen / "checkm2/output/quality_report.tsv",
+        "Name\tCompleteness\tContamination\tCompleteness_Model_Used\n"
+        "euk1\t90\t103.62\tNeural Network (Specific Model)\n"
+        "prok\t70\t101.77\tNeural Network (Specific Model)\n",
+    )
+
+    bundle_path = collect_records(
+        sample, [*stages[:3], screen], tmp_path / "bundle.json"
+    )
+    bundle = validate_bundle(bundle_path)
+    database = build_catalog(bundle_path, tmp_path / "catalog.sqlite")
+
+    stage = next(stage for stage in bundle.stages if stage.stage_id == "checkm2")
+    assert stage.status == "completed"
+    assert stage.status_reason is None
+    assert "euk2: no_called_proteins" in stage.notes.splitlines()
+    assert set(stage.expected_result_keys) == {
+        "qc:checkm2:qc:euk1",
+        "qc:checkm2:qc:prok",
+    }
+    assert {row.bin_id for row in bundle.bins} == {"euk1", "euk2", "prok"}
+    artifacts = {
+        Path(artifact.path).relative_to(screen).as_posix(): artifact
+        for artifact in bundle.artifacts
+        if artifact.producer_stage_id == "checkm2"
+        and artifact.artifact_id != "checkm2.manifest"
+    }
+    assert {
+        "checkm2/command.log",
+        "checkm2/exit_code.txt",
+        "checkm2/output/checkm2.log",
+        "checkm2/output/protein_files/euk2.faa",
+    } <= artifacts.keys()
+    assert artifacts["checkm2/output/protein_files/euk2.faa"].size_bytes == 0
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT target_id, completeness_percent, contamination_percent FROM qc "
+            "WHERE stage_id = 'checkm2' ORDER BY target_id"
+        ).fetchall() == [("euk1", 90.0, 103.62), ("prok", 70.0, 101.77)]
