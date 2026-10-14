@@ -46,8 +46,8 @@ process PROKARYOTE_CHARACTERIZATION {
         --environment checkm1 python -c \
         'from pathlib import Path; import checkm; print((Path(checkm.__file__).parent / "VERSION").read_text().splitlines()[0])')
     GTDBTK_VERSION=\$(pixi run --as-is --quiet --manifest-path "${params.checkm_manifest}" \
-        --environment gtdbtk232 gtdbtk --version)
-    GTDBTK_VERSION=\$(printf '%s\n' "\${GTDBTK_VERSION}" | sed 's/"/\\\\"/g')
+        --environment gtdbtk232 python -c \
+        'from importlib.metadata import version; print(version("gtdbtk"))')
     SYMCLATRON_VERSION=\$(pixi run --as-is --quiet --manifest-path "${params.checkm_manifest}" \
         --environment symclatron symclatron --version)
     SYMCLATRON_VERSION=\$(printf '%s\n' "\${SYMCLATRON_VERSION}" | sed 's/"/\\\\"/g')
