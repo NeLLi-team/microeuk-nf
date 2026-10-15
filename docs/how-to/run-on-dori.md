@@ -259,6 +259,12 @@ new run directory. A reviewed source repair can use the separate procedure below
 
 Repeat any skip switches from the fresh run after `resume`. For example, a run
 started with `--skip-annotation` requires `full resume --skip-annotation`.
+Repeat masking is off by default. Opt in with `--enable-repeat-masking` on
+preparation. Resumes retain the prepared repeat choice unless an explicit repeat
+switch is supplied. Runs prepared before this option existed count as masking
+enabled. An ordinary resume rejects an explicit change to the saved choice.
+The repeat-choice restriction applies only in full mode with gene calling
+enabled; core mode and `--skip-gene-calling` exclude repeat computation.
 Changing the switches requires a new run directory. The launcher rejects a
 scope change before starting Nextflow.
 
@@ -285,8 +291,14 @@ Use this procedure only after reviewing the exact source changes and confirming
 which completed scientific stages remain valid. It does not determine whether
 arbitrary code or dependency updates are compatible with cached results.
 
-Keep the original skip switches after the two source digests. A reviewed source
-repair does not permit changing the run's stage selection.
+Keep the original gene-calling and annotation skip switches after the two source
+digests. To explicitly disable repeat masking for a run prepared with masking
+enabled, add `--skip-repeat-masking` to `resume-reviewed`. This is the only
+stage-choice change allowed during reviewed recovery. The launcher keeps every
+prepared file unchanged, writes the effective repeat choice to the execution
+configuration, and records the prepared and effective choices in `recovery.json`.
+Repeat this explicit switch on each reviewed recovery attempt. Do not use
+`--enable-repeat-masking` and `--skip-repeat-masking` together.
 
 The launcher reruns `ROUTE_BINS`, `COLLECT_RECORDS`, `BUILD_CATALOG` and
 `BUILD_REPORT`. Nextflow decides cache eligibility for other tasks from its

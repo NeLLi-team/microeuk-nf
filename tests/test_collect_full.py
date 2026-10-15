@@ -159,6 +159,7 @@ def test_disabled_stages_survive_collection_catalog_and_report(
         ("skip_gene_calling", "functional_annotation"),
         ("skip_annotation", "functional_annotation"),
         ("skip_annotation", "eggnog_mapper"),
+        ("skip_repeat_masking", "repeat_masking"),
     ],
 )
 def test_disabled_stages_reject_supplied_manifests(
@@ -185,7 +186,9 @@ def test_disabled_stages_reject_supplied_manifests(
         collect_records(sample, [*stages[:4], stage], tmp_path / "bundle.json")
 
 
-@pytest.mark.parametrize("flag", ["skip_gene_calling", "skip_annotation"])
+@pytest.mark.parametrize(
+    "flag", ["skip_gene_calling", "skip_annotation", "skip_repeat_masking"]
+)
 def test_skip_flags_require_json_booleans(tmp_path: Path, flag: str) -> None:
     """String booleans cannot invert requested execution at collection."""
     sample, stages = _full_fixture(tmp_path)
@@ -195,6 +198,47 @@ def test_skip_flags_require_json_booleans(tmp_path: Path, flag: str) -> None:
 
     with pytest.raises(TypeError, match=f"{flag} must be a boolean"):
         collect_records(sample, stages, tmp_path / "bundle.json")
+
+
+@pytest.mark.parametrize("skip_annotation", [False, True])
+def test_unmasked_genes_keep_real_inputs_without_repeat_products(
+    tmp_path: Path,
+    skip_annotation: bool,
+) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    metadata = json.loads(sample.read_text(encoding="utf-8"))
+    metadata.update(skip_repeat_masking=True, skip_annotation=skip_annotation)
+    sample.write_text(json.dumps(metadata), encoding="utf-8")
+    omitted = {"repeat_masking"}
+    if skip_annotation:
+        omitted.add("functional_annotation")
+    enabled = [
+        path
+        for path in stages
+        if json.loads((path / "stage.json").read_text(encoding="utf-8"))["stage"]
+        not in omitted
+    ]
+
+    path = collect_records(sample, enabled, tmp_path / "bundle.json")
+    bundle = validate_bundle(path)
+    build_catalog(path, tmp_path / "catalog.sqlite")
+
+    by_id = {stage.stage_id: stage for stage in bundle.stages}
+    assert by_id["repeat_masking"].status == "skipped"
+    assert by_id["repeat_masking"].tool_version == "not_run"
+    assert by_id["repeat_masking"].status_reason == (
+        "Repeat modeling and masking not requested (skip_repeat_masking=true)."
+    )
+    assert "bin.euk1" in by_id["braker3.euk1"].input_artifact_ids
+    assert "bin.euk2" not in by_id["braker3.euk1"].input_artifact_ids
+    assert {"bin.euk1", "bin.euk2"} <= set(by_id["rna_alignment"].input_artifact_ids)
+    assert all(
+        artifact.producer_stage_id != "repeat_masking" for artifact in bundle.artifacts
+    )
+    assert len(bundle.genes) == 3
+    assert by_id["functional_annotation"].status == (
+        "skipped" if skip_annotation else "completed"
+    )
 
 
 def test_pending_braker_requires_exact_bin_coverage(tmp_path: Path) -> None:

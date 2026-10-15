@@ -1,13 +1,21 @@
 """Input-boundary checks for sequencing technology and sample identity."""
 
+import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 from protist_meta.cli import main
-from protist_meta.inputs import _source_digest, read_registry, read_samples
+from protist_meta.inputs import (
+    _source_digest,
+    prepare_inputs,
+    read_registry,
+    read_samples,
+)
 
 
 def test_source_digest_changes_when_python_runtime_helper_changes(tmp_path):
@@ -213,12 +221,14 @@ def test_registry_skips_only_disabled_stage_dependencies(
 
 
 @pytest.mark.parametrize(
-    ("flags", "skip_gene_calling", "skip_annotation"),
+    ("flags", "skip_gene_calling", "skip_annotation", "skip_repeat_masking"),
     [
-        ((), False, False),
-        (("--skip-gene-calling",), True, False),
-        (("--skip-annotation",), False, True),
-        (("--skip-gene-calling", "--skip-annotation"), True, True),
+        ((), False, False, True),
+        (("--skip-gene-calling",), True, False, True),
+        (("--skip-annotation",), False, True, True),
+        (("--skip-gene-calling", "--skip-annotation"), True, True, True),
+        (("--enable-repeat-masking",), False, False, False),
+        (("--skip-repeat-masking",), False, False, True),
     ],
 )
 def test_prepare_records_requested_stage_choices(
@@ -227,6 +237,7 @@ def test_prepare_records_requested_stage_choices(
     *,
     skip_gene_calling: bool,
     skip_annotation: bool,
+    skip_repeat_masking: bool,
 ) -> None:
     """Preparation records requested flags, including the enabled legacy defaults."""
     (tmp_path / "reads.fq").write_text("@r\nACGT\n+\nIIII\n", encoding="utf-8")
@@ -255,9 +266,17 @@ def test_prepare_records_requested_stage_choices(
     provenance = json.loads((output / "inputs.json").read_text(encoding="utf-8"))
     assert provenance["skip_gene_calling"] is skip_gene_calling
     assert provenance["skip_annotation"] is skip_annotation
+    assert provenance["skip_repeat_masking"] is skip_repeat_masking
     config = (output / "dependencies.config").read_text(encoding="utf-8")
     assert f"params.skip_gene_calling = {str(skip_gene_calling).lower()}\n" in config
     assert f"params.skip_annotation = {str(skip_annotation).lower()}\n" in config
+    assert (
+        f"params.skip_repeat_masking = {str(skip_repeat_masking).lower()}\n" in config
+    )
+    assert (
+        f"params.prepared_skip_repeat_masking = {str(skip_repeat_masking).lower()}\n"
+        in config
+    )
     assert (
         f"params.prepared_skip_gene_calling = {str(skip_gene_calling).lower()}\n"
         in config
@@ -265,6 +284,185 @@ def test_prepare_records_requested_stage_choices(
     assert (
         f"params.prepared_skip_annotation = {str(skip_annotation).lower()}\n" in config
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "skip_genes"),
+    [("full", False), ("core", False), ("full", True)],
+)
+def test_softmasked_input_requires_repeat_masking(
+    tmp_path: Path, mode: str, skip_genes: bool
+):
+    (tmp_path / "reads.fq").write_text("@r\nACGT\n+\nIIII\n", encoding="utf-8")
+    (tmp_path / "masked.fa").write_text(">c\nACgt\n", encoding="utf-8")
+    sheet = tmp_path / "samples.tsv"
+    sheet.write_text(
+        "sample_id\tplatform\treads\tassembly\tsoftmasked\n"
+        "S1\tONT\treads.fq\tmasked.fa\tmasked.fa\n",
+        encoding="utf-8",
+    )
+    registry = tmp_path / "db.yaml"
+    registry.write_text("schema_version: 1.0.0\nentries: {}\n", encoding="utf-8")
+
+    if mode == "full" and not skip_genes:
+        with pytest.raises(ValueError, match=r"softmasked.*enable-repeat-masking"):
+            prepare_inputs(sheet, registry, tmp_path / "disabled", mode=mode)
+    else:
+        assert prepare_inputs(
+            sheet,
+            registry,
+            tmp_path / "disabled",
+            mode=mode,
+            skip_gene_calling=skip_genes,
+        ).is_file()
+    manifest = prepare_inputs(
+        sheet,
+        registry,
+        tmp_path / "enabled",
+        mode="full",
+        skip_repeat_masking=False,
+    )
+    assert manifest.is_file()
+
+
+@pytest.mark.parametrize(
+    ("saved", "mode", "option", "requested", "expected"),
+    [
+        ({}, "resume", "", "true", "false"),
+        ({}, "resume-reviewed", "", "true", "false"),
+        ({}, "resume", "--skip-repeat-masking", "true", None),
+        ({}, "resume-reviewed", "--skip-repeat-masking", "true", "true"),
+        ({"skip_repeat_masking": True}, "resume", "", "true", "true"),
+        (
+            {"skip_repeat_masking": False},
+            "resume",
+            "--enable-repeat-masking",
+            "false",
+            "false",
+        ),
+        (
+            {"skip_repeat_masking": True},
+            "resume-reviewed",
+            "--enable-repeat-masking",
+            "false",
+            None,
+        ),
+        (
+            {"mode": "core", "samples": [{"softmasked": "supplied.fa"}]},
+            "resume",
+            "--skip-repeat-masking",
+            "true",
+            "true",
+        ),
+        (
+            {"skip_gene_calling": True, "samples": [{"softmasked": "supplied.fa"}]},
+            "resume",
+            "--skip-repeat-masking",
+            "true",
+            "true",
+        ),
+    ],
+)
+def test_launcher_preserves_saved_repeat_choice_unless_reviewed_disable(
+    tmp_path: Path,
+    saved: dict,
+    mode: str,
+    option: str,
+    requested: str,
+    expected: str | None,
+) -> None:
+    """Execute the launcher's actual preparation validator with legacy metadata."""
+    script = (Path(__file__).parents[1] / "scripts/run-allocation.slurm").read_text(
+        encoding="utf-8"
+    )
+    validator = script.split("<<'PYTHON'\n")[1].split("\nPYTHON", 1)[0]
+    registry = tmp_path / "db.yaml"
+    registry.write_text("schema_version: 1.0.0\nentries: {}\n", encoding="utf-8")
+    inputs = tmp_path / "inputs.json"
+    inputs.write_text(json.dumps({"samples": [], **saved}), encoding="utf-8")
+    before = inputs.read_bytes()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(registry),
+            saved.get("mode", "full"),
+            str(saved.get("skip_gene_calling", False)).lower(),
+            "false",
+            str(inputs),
+            mode,
+            requested,
+            option,
+        ],
+        input=validator,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert inputs.read_bytes() == before
+    if expected is None:
+        assert result.returncode != 0
+        assert "Repeat choice differs" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected
+
+
+def test_reviewed_receipt_records_repeat_override_without_rewriting_preparation(
+    tmp_path: Path,
+) -> None:
+    script = (Path(__file__).parents[1] / "scripts/run-allocation.slurm").read_text(
+        encoding="utf-8"
+    )
+    receipt_code = script.split("<<'PYTHON'\n")[2].split("\nPYTHON", 1)[0]
+    identity = tmp_path / "resume-identity.tsv"
+    identity.write_text("source_revision\told-source\n", encoding="utf-8")
+    inputs = tmp_path / "inputs.json"
+    inputs.write_text('{"samples":[{"sample_id":"S1"}]}\n', encoding="utf-8")
+    dependencies = tmp_path / "dependencies.config"
+    dependencies.write_text("params.run_id = 'saved-run'\n", encoding="utf-8")
+    before = (identity.read_bytes(), inputs.read_bytes(), dependencies.read_bytes())
+    execution = tmp_path / "execution"
+    execution.mkdir()
+    config = execution / "allocation.config"
+    config.write_text(
+        "params.skip_repeat_masking = true\n"
+        "params.prepared_skip_repeat_masking = true\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(identity),
+            str(execution),
+            "old-source",
+            "new-source",
+            "true",
+        ],
+        input=receipt_code,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    receipt = json.loads((execution / "recovery.json").read_text(encoding="utf-8"))
+    assert receipt["prepared_skip_repeat_masking"] is False
+    assert receipt["effective_skip_repeat_masking"] is True
+    assert receipt["original_source_revision"] == "old-source"
+    assert receipt["execution_source_revision"] == "new-source"
+    assert (
+        receipt["allocation_config_sha256"]
+        == hashlib.sha256(config.read_bytes()).hexdigest()
+    )
+    assert (
+        identity.read_bytes(),
+        inputs.read_bytes(),
+        dependencies.read_bytes(),
+    ) == before
 
 
 def test_manifest_rejects_shell_expansion_in_protein_lineage(tmp_path):

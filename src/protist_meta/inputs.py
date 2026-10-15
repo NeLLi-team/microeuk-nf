@@ -165,7 +165,7 @@ def _check_executables(target: Path, dependency: Dependency) -> None:
                 raise ValueError(f"Pixi dependency is not executable: {command}")
 
 
-def prepare_inputs(
+def prepare_inputs(  # noqa: PLR0913  # Explicit CLI choices avoid an options wrapper.
     samples_path: Path,
     registry_path: Path,
     output_dir: Path,
@@ -173,9 +173,17 @@ def prepare_inputs(
     mode: str,
     skip_gene_calling: bool = False,
     skip_annotation: bool = False,
+    skip_repeat_masking: bool = True,
 ) -> Path:
     """Write validated TSV and a literal Nextflow dependency configuration."""
     samples = read_samples(samples_path)
+    if (
+        mode == "full"
+        and not skip_gene_calling
+        and skip_repeat_masking
+        and any(sample.softmasked for sample in samples)
+    ):
+        raise ValueError("softmasked input requires --enable-repeat-masking")
     registry, dependencies = read_registry(
         registry_path,
         mode=mode,
@@ -191,8 +199,10 @@ def prepare_inputs(
     config_lines: list[str] = [
         f"params.skip_gene_calling = {str(skip_gene_calling).lower()}",
         f"params.skip_annotation = {str(skip_annotation).lower()}",
+        f"params.skip_repeat_masking = {str(skip_repeat_masking).lower()}",
         f"params.prepared_skip_gene_calling = {str(skip_gene_calling).lower()}",
         f"params.prepared_skip_annotation = {str(skip_annotation).lower()}",
+        f"params.prepared_skip_repeat_masking = {str(skip_repeat_masking).lower()}",
     ]
     for name, path in dependencies.items():
         version = registry.entries[name].version
@@ -214,6 +224,7 @@ def prepare_inputs(
         "mode": mode,
         "skip_gene_calling": skip_gene_calling,
         "skip_annotation": skip_annotation,
+        "skip_repeat_masking": skip_repeat_masking,
         "registry": registry.model_dump(mode="json"),
         "resolved": {name: str(path) for name, path in dependencies.items()},
         "samples": [sample.model_dump(mode="json") for sample in samples],

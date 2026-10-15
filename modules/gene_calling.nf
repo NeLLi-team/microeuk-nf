@@ -452,9 +452,12 @@ process MAP_RNA_EVIDENCE {
         : meta.rna_platform == 'ont_direct' ? 'splice -uf -k14' : 'splice'
     def rnaMapThreads = Math.max(task.cpus - 4, 1)
     def rnaSource = rna_reads ? rna_reads.toString() : ''
+    def genomeSubdir = params.skip_repeat_masking ? 'eukaryotic' : 'masked'
+    def genomeSuffix = params.skip_repeat_masking ? '.fna' : '.softmasked.fna'
+    def genomeMode = params.skip_repeat_masking ? 'routed unmasked bins' : 'softmasked bins'
     """
     mkdir -p 10_rna_alignment/{bins,stats}
-    BIN_COUNT=\$(find "${masking_dir}/masked" -maxdepth 1 -type f -name '*.softmasked.fna' -size +0c | wc -l)
+    BIN_COUNT=\$(find "${masking_dir}/${genomeSubdir}" -maxdepth 1 -type f -name '*${genomeSuffix}' -size +0c | wc -l)
     STATUS=skipped
     REASON=no_routed_eukaryotic_bins
     if [[ \${BIN_COUNT} -gt 0 && -z "${rnaSource}" ]]; then
@@ -485,8 +488,8 @@ process MAP_RNA_EVIDENCE {
         rm all_rna.sorted.bam
 
         mkdir -p tmp/faidx
-        for FASTA in "${masking_dir}"/masked/*.softmasked.fna; do
-            BIN=\$(basename "\${FASTA}" .softmasked.fna)
+        for FASTA in "${masking_dir}/${genomeSubdir}"/*${genomeSuffix}; do
+            BIN=\$(basename "\${FASTA}" ${genomeSuffix})
             FAI="tmp/faidx/\${BIN}.fai"
             pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
                 samtools faidx --fai-idx "\${FAI}" "\${FASTA}"
@@ -515,7 +518,7 @@ process MAP_RNA_EVIDENCE {
       "tool_version": "minimap2 \${MINIMAP2_VERSION}; \${SAMTOOLS_VERSION}",
       "database_name": null,
       "database_version": null,
-      "command": "whole-assembly splice alignment; retain primary MAPQ>=${params.rna_min_mapq}; subset by bin contigs",
+      "command": "whole-assembly splice alignment; retain primary MAPQ>=${params.rna_min_mapq}; subset by bin contigs from ${genomeMode}",
       "reason": "\${REASON}",
       "outputs": {"whole_assembly_bam": "sample.splice.primary.unique.bam", "bin_bams": "bins", "stats": "stats"}
     }
@@ -543,12 +546,16 @@ process BRAKER3_EUKARYOTES {
     script:
     def proteinSource = protein_reference ? protein_reference.toString() : ''
     def rnaPlatform = meta.rna_platform?.toString()?.toLowerCase() ?: ''
+    def genomeSubdir = params.skip_repeat_masking ? 'eukaryotic' : 'masked'
+    def genomeSuffix = params.skip_repeat_masking ? '.fna' : '.softmasked.fna'
+    def maskingFlag = params.skip_repeat_masking ? '--softmasking_off' : ''
+    def genomeMode = params.skip_repeat_masking ? 'routed unmasked bins; --softmasking_off' : 'softmasked bins; default softmask handling'
     """
     set -o pipefail
     mkdir -p 11_braker3/{annotations,proteins,augustus_config} braker_work/tmp
     export TMPDIR="\$PWD/braker_work/tmp"
     shopt -s nullglob
-    BINS=("${masking_dir}"/masked/*.softmasked.fna)
+    BINS=("${masking_dir}/${genomeSubdir}"/*${genomeSuffix})
     STATUS=skipped
     REASON=no_routed_eukaryotic_bins
     if [[ \${#BINS[@]} -gt 0 ]]; then
@@ -571,7 +578,7 @@ process BRAKER3_EUKARYOTES {
         cp -a "\${AUG_SOURCE}/species/generic" "\${AUGUSTUS_CONFIG}/species/"
 
         for FASTA in "\${BINS[@]}"; do
-            BIN=\$(basename "\${FASTA}" .softmasked.fna)
+            BIN=\$(basename "\${FASTA}" ${genomeSuffix})
             BAM="${rna_dir}/bins/\${BIN}.bam"
             HAS_RNA=0
             if [[ -e "\${BAM}" || -e "\${BAM}.bai" ]]; then
@@ -589,7 +596,7 @@ process BRAKER3_EUKARYOTES {
             SPECIES="${meta.sample_id}_\${BIN}"
             ARGS=(braker.pl "--genome=\${FASTA}" "--species=\${SPECIES}" \
                 "--AUGUSTUS_CONFIG_PATH=\${AUGUSTUS_CONFIG}" \
-                "--workingdir=\${OUT}" "--threads=${task.cpus}" --gff3)
+                "--workingdir=\${OUT}" "--threads=${task.cpus}" --gff3 ${maskingFlag})
             if [[ \${HAS_PROTEINS} -eq 1 && \${HAS_RNA} -eq 1 ]]; then
                 case "${rnaPlatform}" in
                     pacbio_isoseq|ont_cdna|ont_direct)
@@ -688,7 +695,7 @@ process BRAKER3_EUKARYOTES {
       "tool_version": "\${BRAKER_VERSION}@35280d0c2f56dde026ab346c0255740c11ab80a1; \${GENEMARK_VERSION}@64a69cbc11e15d51779da021d794cbe9c6d695a7; \${PROTHINT_VERSION}",
       "database_name": "protein_reference",
       "database_version": "protein lineage ${meta.protein_lineage ?: 'not supplied'}",
-      "command": "seed private AUGUSTUS config with species/generic; braker.pl with explicit private AUGUSTUS_CONFIG_PATH, default softmask handling and evidence-inferred mode; ET for RNA only, EP for protein only, patched long-read ETP for long RNA plus protein; retain native work outside publication and copy final outputs, logs, header maps and trained species",
+      "command": "seed private AUGUSTUS config with species/generic; braker.pl with explicit private AUGUSTUS_CONFIG_PATH; ${genomeMode}; evidence-inferred mode; ET for RNA only, EP for protein only, patched long-read ETP for long RNA plus protein; retain native work outside publication and copy final outputs, logs, header maps and trained species",
       "reason": "\${REASON}",
       "outputs": {"annotations": "annotations", "proteins": "proteins"}
     }

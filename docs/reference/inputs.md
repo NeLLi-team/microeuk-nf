@@ -45,25 +45,34 @@ prediction's reported code.
 
 ## Optional analysis stages
 
-Full mode enables gene calling and functional annotation by default. The
+Full mode enables gene calling and functional annotation by default. Repeat
+modeling and masking are off by default. The
 allocation launcher and `protist-meta prepare` accept these switches:
 
 | Switch | Effect in full mode |
 |---|---|
+| `--enable-repeat-masking` | Enables RepeatModeler/RepeatMasker, or uses the supplied softmasked assembly. |
+| `--skip-repeat-masking` | Explicitly selects the default unmasked route. |
 | `--skip-annotation` | Retains gene calling; omits eggNOG-mapper and InterProScan functional annotation. |
 | `--skip-gene-calling` | Omits repeat masking, RNA alignment, BRAKER3, dedicated Prodigal-GV gene calling, and functional annotation. |
 
-Both switches default to false. Gene calling cannot be disabled while retaining
+The gene-calling and annotation skip switches default to false. Gene calling cannot be disabled while retaining
 functional annotation. Quality assessment, taxonomic classification, SSU
 analysis, viral screening, and prokaryotic characterization still run. Gene
 prediction used internally by those tools is unaffected. Core mode excludes
-both optional stages regardless of these switches.
+all three optional stages regardless of these switches. When repeat masking is
+off, RNA alignment and BRAKER3 use routed eukaryotic bin FASTAs directly.
+BRAKER3 receives `--softmasking_off`. When full mode includes gene calling,
+preparation rejects supplied softmasked input unless repeat masking is enabled.
+Full preflight still requires the
+installed repeat tools and Dfam; the switch controls computation.
 
-Direct Nextflow commands use `--skip_gene_calling` and `--skip_annotation`,
+Direct Nextflow commands use `--skip_repeat_masking`, `--skip_gene_calling` and `--skip_annotation`,
 with underscores. The hyphenated launcher switches do not set these Nextflow
 parameters. Preparation records the requested values in `inputs.json`
 and writes the matching Nextflow configuration. Nextflow rejects an override
-that conflicts with a recorded preparation choice.
+that conflicts with a recorded preparation choice. Repeat masking excluded by
+this choice is recorded as skipped, with no masking products or repeat counts.
 
 All supplied sample paths and evidence-pair fields are validated even when
 their downstream analysis is disabled. Leave unused optional fields empty.

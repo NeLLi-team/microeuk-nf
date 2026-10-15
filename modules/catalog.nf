@@ -21,6 +21,7 @@ process COLLECT_RECORDS {
         run_mode: meta.run_mode,
         skip_gene_calling: params.skip_gene_calling,
         skip_annotation: params.skip_annotation,
+        skip_repeat_masking: params.skip_repeat_masking,
         workflow_version: meta.workflow_version,
         source_revision: meta.source_revision,
         assembly: meta.assembly,

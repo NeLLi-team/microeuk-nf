@@ -30,6 +30,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 mode=args.mode,
                 skip_gene_calling=args.skip_gene_calling,
                 skip_annotation=args.skip_annotation,
+                skip_repeat_masking=args.skip_repeat_masking,
             )
         case "collect":
             collect_records(args.sample_json, args.stages, args.output)
@@ -97,6 +98,20 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip functional annotation while retaining gene calling",
     )
+    repeat = prepare.add_mutually_exclusive_group()
+    repeat.add_argument(
+        "--enable-repeat-masking",
+        dest="skip_repeat_masking",
+        action="store_false",
+        help="Enable repeat modeling and masking (off by default)",
+    )
+    repeat.add_argument(
+        "--skip-repeat-masking",
+        dest="skip_repeat_masking",
+        action="store_true",
+        help="Use routed unmasked eukaryotic bins for gene calling (default)",
+    )
+    prepare.set_defaults(skip_repeat_masking=True)
     collect = commands.add_parser("collect", help="Normalize exact stage outputs")
     collect.add_argument(
         "--sample-json", type=Path, required=True, help="Sample/run metadata"

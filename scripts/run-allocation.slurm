@@ -26,6 +26,8 @@ if [[ $BASH != "$root_bash" || ${CONDA_PREFIX:-} != "$root_prefix" \
 fi
 skip_gene_calling=false
 skip_annotation=false
+skip_repeat_masking=true
+repeat_option=''
 ont_min_length=''
 prepare_args=()
 positional_args=()
@@ -60,6 +62,16 @@ while [[ $# -gt 0 ]]; do
             skip_annotation=true
             prepare_args+=("$argument")
             ;;
+        --enable-repeat-masking|--skip-repeat-masking)
+            if [[ -n "$repeat_option" ]]; then
+                echo 'Supply at most one repeat-masking option.' >&2
+                exit 2
+            fi
+            repeat_option=$argument
+            skip_repeat_masking=true
+            [[ $argument != --enable-repeat-masking ]] || skip_repeat_masking=false
+            prepare_args+=("$argument")
+            ;;
         --*)
             printf 'Unknown option: %s\n' "$argument" >&2
             exit 2
@@ -70,7 +82,7 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${positional_args[@]}"
 if [[ $# != 3 && $# != 4 && $# != 6 ]]; then
-    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--ont-min-length BASES] [--skip-gene-calling] [--skip-annotation]' >&2
+    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--ont-min-length BASES] [--skip-gene-calling] [--skip-annotation] [--enable-repeat-masking | --skip-repeat-masking]' >&2
     exit 2
 fi
 if [[ ! -f "$project_root/pixi.toml" ]]; then
@@ -186,9 +198,9 @@ pixi run --as-is --manifest-path "$project_root/pixi.toml" --environment core \
 pixi run --as-is --manifest-path "$project_root/envs/bbtools/pixi.toml" \
     --environment bbtools bash "$project_root/scripts/require-pixi-tools.sh" \
     quickbin.sh quickclade.sh bbversion.sh java
-pixi run --as-is --manifest-path "$project_root/pixi.toml" \
+skip_repeat_masking=$(pixi run --as-is --manifest-path "$project_root/pixi.toml" \
     python - "$registry" "$mode" "$skip_gene_calling" "$skip_annotation" \
-    "$run_dir/prepared/inputs.json" "${4:-}" <<'PYTHON'
+    "$run_dir/prepared/inputs.json" "${4:-}" "$skip_repeat_masking" "$repeat_option" <<'PYTHON'
 import json
 import sys
 from pathlib import Path
@@ -197,6 +209,7 @@ from protist_meta.inputs import read_registry
 
 skip_gene_calling = sys.argv[3] == "true"
 skip_annotation = sys.argv[4] == "true"
+skip_repeat_masking = sys.argv[7] == "true"
 if sys.argv[6] in ("resume", "resume-reviewed"):
     saved = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8"))
     if (
@@ -206,13 +219,37 @@ if sys.argv[6] in ("resume", "resume-reviewed"):
         raise SystemExit(
             "Resume stage choices differ from saved preparation; use a new run directory."
         )
+    prepared_repeat_choice = saved.get("skip_repeat_masking", False)
+    if not isinstance(prepared_repeat_choice, bool):
+        raise SystemExit("Prepared skip_repeat_masking must be a boolean.")
+    if not sys.argv[8]:
+        skip_repeat_masking = prepared_repeat_choice
+    gene_calling_enabled = sys.argv[2] == "full" and not skip_gene_calling
+    if (
+        gene_calling_enabled
+        and skip_repeat_masking != prepared_repeat_choice
+        and not (
+            sys.argv[6] == "resume-reviewed"
+            and sys.argv[8] == "--skip-repeat-masking"
+        )
+    ):
+        raise SystemExit(
+            "Repeat choice differs; only an explicit --skip-repeat-masking under "
+            "resume-reviewed may change enabled repeats to disabled."
+        )
+    if gene_calling_enabled and skip_repeat_masking and any(
+        sample.get("softmasked") for sample in saved["samples"]
+    ):
+        raise SystemExit("Prepared softmasked input cannot use skipped repeat masking.")
 read_registry(
     Path(sys.argv[1]),
     mode=sys.argv[2],
     skip_gene_calling=skip_gene_calling,
     skip_annotation=skip_annotation,
 )
+print(str(skip_repeat_masking).lower())
 PYTHON
+)
 
 if [[ ${4:-} == resume || ${4:-} == resume-reviewed ]]; then
     current_source_revision=$(pixi run --as-is --manifest-path "$project_root/pixi.toml" \
@@ -278,10 +315,12 @@ trace.fields = 'task_id,hash,native_id,name,status,exit,cpus,memory,realtime,pea
 report.file = '${execution_dir}/nextflow-report.html'
 timeline.file = '${execution_dir}/timeline.html'
 dag.file = '${execution_dir}/dag.html'
+params.skip_repeat_masking = ${skip_repeat_masking}
+params.prepared_skip_repeat_masking = ${skip_repeat_masking}
 CONFIG
 if [[ ${4:-} == resume-reviewed ]]; then
     pixi run --as-is --manifest-path "$project_root/pixi.toml" \
-        python - "$identity" "$execution_dir" "$5" "$6" <<'PYTHON'
+        python - "$identity" "$execution_dir" "$5" "$6" "$skip_repeat_masking" <<'PYTHON'
 import csv
 import hashlib
 import json
@@ -314,6 +353,8 @@ receipt = {
     "run_id": run_id.group(1),
     "original_source_revision": sys.argv[3],
     "execution_source_revision": sys.argv[4],
+    "prepared_skip_repeat_masking": inputs.get("skip_repeat_masking", False),
+    "effective_skip_repeat_masking": sys.argv[5] == "true",
     "execution_directory": str(execution),
     "started_at": datetime.now(UTC).isoformat(),
     "forced_processes": forced_processes,

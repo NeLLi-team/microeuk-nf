@@ -125,6 +125,7 @@ class CollectionContext:
     sample_id: str
     run_id: str
     records: Collections
+    skip_repeat_masking: bool = False
     viruses_by_native: dict[str, str] = field(default_factory=dict)
 
     def scope(self) -> Row:
@@ -137,7 +138,12 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
     sample = json.loads(sample_path.read_text(encoding="utf-8"))
     disabled = _disabled_stages(sample)
     records: Collections = {name: [] for name in COLLECTIONS}
-    context = CollectionContext(sample["sample_id"], sample["run_id"], records)
+    context = CollectionContext(
+        sample["sample_id"],
+        sample["run_id"],
+        records,
+        skip_repeat_masking=sample.get("skip_repeat_masking", False),
+    )
     records["samples"].append({"sample_id": context.sample_id})
     records["runs"].append({**context.scope(), "platform": sample["platform"].lower()})
     if sample.get("genetic_code", "auto") != "auto":
@@ -170,8 +176,18 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
     elif sample.get("skip_annotation"):
         _record_unrequested(
             context,
-            disabled,
+            ANNOTATION_STAGES,
             "Functional annotation disabled by user (--skip-annotation).",
+        )
+    if (
+        sample.get("run_mode") != "core"
+        and not sample.get("skip_gene_calling")
+        and sample.get("skip_repeat_masking")
+    ):
+        _record_unrequested(
+            context,
+            {"repeat_masking"},
+            "Repeat modeling and masking not requested (skip_repeat_masking=true).",
         )
     bundle: Row = {
         "schema_version": "1.0.0",
@@ -186,14 +202,15 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
 
 def _disabled_stages(sample: Row) -> set[str]:
     """Validate requested switches and identify excluded analysis stages."""
-    for name in ("skip_gene_calling", "skip_annotation"):
+    for name in ("skip_gene_calling", "skip_annotation", "skip_repeat_masking"):
         if not isinstance(sample.get(name, False), bool):
             raise TypeError(f"{name} must be a boolean")
     if sample.get("skip_gene_calling"):
         return GENE_STAGES | ANNOTATION_STAGES
-    if sample.get("skip_annotation"):
-        return ANNOTATION_STAGES.copy()
-    return set()
+    disabled = ANNOTATION_STAGES.copy() if sample.get("skip_annotation") else set()
+    if sample.get("skip_repeat_masking"):
+        disabled.add("repeat_masking")
+    return disabled
 
 
 def _collect_external_evidence(context: CollectionContext, sample: Row) -> None:
@@ -1246,10 +1263,16 @@ def _repeat_masking_inputs(context: CollectionContext, _stage: str) -> list[str]
 
 
 def _rna_alignment_inputs(context: CollectionContext, _stage: str) -> list[str]:
+    unmasked_bins = {
+        f"bin.{row['bin_id']}"
+        for row in context.records["bins"]
+        if row["candidate_class"] == "eukaryotic_candidate"
+        and context.skip_repeat_masking
+    }
     return _artifact_ids(
         context,
         lambda row: (
-            row["artifact_id"] in {"assembly", "rna_reads"}
+            row["artifact_id"] in {"assembly", "rna_reads"} | unmasked_bins
             or (
                 row["producer_stage_id"] == "repeat_masking"
                 and row["kind"] == "assembly"
@@ -1331,8 +1354,19 @@ def _is_gene_protein(row: Row) -> bool:
 
 
 def _braker_inputs(context: CollectionContext, bin_id: str | None) -> list[str]:
+    unmasked_bins = {
+        f"bin.{row['bin_id']}"
+        for row in context.records["bins"]
+        if context.skip_repeat_masking
+        and row["candidate_class"] == "eukaryotic_candidate"
+        and (bin_id is None or row["bin_id"] == bin_id)
+    }
+
     def selected(row: Row) -> bool:
-        if row["artifact_id"] == "protein_reference":
+        if (
+            row["artifact_id"] == "protein_reference"
+            or row["artifact_id"] in unmasked_bins
+        ):
             return True
         producer = row["producer_stage_id"]
         if producer not in {"repeat_masking", "rna_alignment"}:

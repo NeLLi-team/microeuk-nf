@@ -58,7 +58,9 @@ elements within a host; they do not supply whole-bin viral support. When a host
 bin is routed to a cellular gene caller, its integrated intervals are excluded
 from the unbinned viral gene input.
 
-RepeatModeler supplies the repeat library unless a softmasked assembly is provided.
+Repeat modeling and masking are optional and off by default. With
+`--enable-repeat-masking`, RepeatModeler supplies the repeat library unless a
+softmasked assembly is provided.
 The workflow confirms a RepeatScout no-seed failure by rerunning its native child
 command on the sampled sequence, then retries RepeatModeler once with `-skipRS`.
 The same retry applies to a verified empty-refinement failure when every retained
@@ -69,7 +71,11 @@ A blank family count requires explicit zero-family round output and full input c
 No discovered families does not establish that the assembly lacks repeats.
 Other native failures stop the workflow. Stage logs survive task scratch cleanup.
 
-BRAKER3 requires a softmasked assembly and compatible RNA or protein evidence.
+BRAKER3 requires compatible RNA or protein evidence. With repeat masking off,
+it uses the routed unmasked bin FASTA and `--softmasking_off`. With masking on,
+it uses the softmasked bin FASTA and default softmask handling. The stage
+provenance records this input choice. Skipping masking supplies no evidence
+about repeat content and can change gene predictions.
 RNA alignments must belong to the target bin. Supplied proteins need an explicit
 lineage label. RNA alone selects ET mode; proteins alone select EP
 mode. Long-read RNA with proteins uses the pinned experimental ETP variant.
