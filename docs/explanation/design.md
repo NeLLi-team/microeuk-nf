@@ -35,12 +35,25 @@ QuickClade labels remain comparison evidence and cannot establish or veto a
 route. A prokaryotic route requires GVClass bacterial or archaeal support.
 A eukaryotic route requires CheckEUK status `ok` with a resolved lineage plus
 GVClass eukaryotic support or a linked eukaryotic SSU locus. CheckEUK completeness
-alone does not establish taxonomy. GVClass eukaryotic support with an unresolved
-CheckEUK lineage leaves the bin unresolved for review. Viral support conflicts
+alone does not establish taxonomy. CheckEUK reports a lineage only when its host
+vote has at least five informative markers, so small bins often have none.
+When CheckEUK status is `ok`, its lineage is blank, its host vote has fewer than
+five markers (`marker_tax_host_lineage_selected_markers` in
+`checkeuk_report_detail.tsv`, a blank value counting as zero) and GVClass assigns
+`d_EUK`, the bin takes the eukaryotic route with the reason "GVClass supports a
+eukaryotic route; CheckEUK has too few markers to name a lineage". GVClass
+eukaryotic support with a blank CheckEUK lineage and five or more voting markers
+leaves the bin unresolved for review. Viral support conflicts
 with independent eukaryotic evidence: CheckEUK status `ok` with a resolved lineage,
 GVClass `d_EUK`, or a physically linked RF01960 locus with Eukaryota taxonomy.
 Such bins remain unresolved with candidate class `conflicting`, including when
 GVClass `d_EUK` accompanies a blank CheckEUK lineage.
+
+The routing ledger `evidence.tsv` reports one taxonomy string per bin in
+`taxonomy`, with its origin in `taxonomy_source`. A bin with a CheckEUK lineage
+carries that lineage and the source `checkeuk`. A bin routed through the GVClass
+fallback carries the GVClass `taxonomy_majority` and the source `gvclass_fallback`.
+All other bins leave both fields blank.
 
 GVClass `d_PLASTID` and `d_MITO` calls retain an unresolved route because the
 workflow has no organelle gene caller. Supported eukaryotic or viral

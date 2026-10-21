@@ -57,6 +57,13 @@ GVCLASS_DOMAINS = {
     "d_EUK-pEVE": "ambiguous",
 }
 UNCLASSIFIED_GVCLASS = {"", "d_", "nd"}
+CHECKEUK_DETAIL = Path("result_checkeuk/checkeuk_report_detail.tsv")
+CHECKEUK_VOTING_MARKERS = "marker_tax_host_lineage_selected_markers"
+MIN_CHECKEUK_VOTING_MARKERS = 5
+FALLBACK_REASON = (
+    "GVClass supports a eukaryotic route; CheckEUK has too few markers to name "
+    "a lineage"
+)
 EUKARYOTIC_SSU_MODEL = "RF01960"
 PROVIRUS_SEPARATOR = "|provirus_"
 
@@ -69,6 +76,8 @@ EVIDENCE_FIELDS = (
     "reason",
     "checkeuk_status",
     "checkeuk_lineage",
+    "taxonomy",
+    "taxonomy_source",
     "quickclade_domain",
     "quickclade_lineage",
     "quickclade_confidence",
@@ -87,6 +96,7 @@ class BinEvidence:
     """Native evidence associated with one physical bin."""
 
     checkeuk: Row
+    checkeuk_voting_markers: int
     quickclade: Row
     gvclass: Row
     eukaryotic_ssu: tuple[Row, ...]
@@ -111,6 +121,7 @@ class Signals:
     has_eukaryotic_evidence: bool
     quickclade: str | None
     gvclass: str | None
+    checkeuk_fallback: bool
     eukaryotic: bool
     prokaryotic: bool
     viral: bool
@@ -168,6 +179,9 @@ def route_bins(
         if set(report) != bin_ids:
             raise ValueError(f"{name} identifiers do not exactly cover physical bins")
     _validate_native_labels(quickclade, checkeuk, gvclass)
+    voting_markers = _checkeuk_voting_markers(paths["checkeuk"])
+    if set(voting_markers) != bin_ids:
+        raise ValueError("CheckEUK detail identifiers do not exactly cover bins")
     linked_ssu = _linked_ssu(paths["ssuextract"], contig_to_bin)
     linked_viruses = _linked_viruses(paths["viral"], contig_to_bin)
     rows: list[Row] = []
@@ -175,6 +189,7 @@ def route_bins(
     for bin_id in sorted(bins):
         evidence = BinEvidence(
             checkeuk[bin_id],
+            voting_markers[bin_id],
             quickclade[bin_id],
             gvclass[bin_id],
             tuple(linked_ssu.get(bin_id, ())),
@@ -193,6 +208,21 @@ def _report_paths(evidence_dirs: Mapping[str, Path]) -> dict[str, Path]:
     if missing:
         raise ValueError(f"missing evidence directories: {sorted(missing)}")
     return {name: evidence_dirs[name] / report for name, report in REPORTS.items()}
+
+
+def _checkeuk_voting_markers(report_path: Path) -> dict[str, int]:
+    detail = report_path.with_name(CHECKEUK_DETAIL.name)
+    required = ("genome", CHECKEUK_VOTING_MARKERS)
+    counts: dict[str, int] = {}
+    for bin_id, row in _indexed_report(detail, required, "genome").items():
+        text = row[CHECKEUK_VOTING_MARKERS].strip()
+        try:
+            counts[bin_id] = int(text) if text else 0
+        except ValueError:
+            raise ValueError(
+                f"{detail} has a non-integer voting marker count for {bin_id}: {text!r}"
+            ) from None
+    return counts
 
 
 def _sample_identity(path: Path) -> dict[str, str]:
@@ -334,14 +364,15 @@ def _decide(evidence: BinEvidence) -> Decision:
     elif signals.eukaryotic:
         route = "eukaryotic"
         candidate_class = "eukaryotic_candidate"
-        reason = (
-            "CheckEUK and GVClass support a eukaryotic route"
-            if signals.gvclass == "eukaryotic"
-            else (
+        if signals.checkeuk_fallback:
+            reason = FALLBACK_REASON
+        elif signals.gvclass == "eukaryotic":
+            reason = "CheckEUK and GVClass support a eukaryotic route"
+        else:
+            reason = (
                 "CheckEUK and a physically linked eukaryotic 18S locus support "
                 "a eukaryotic route"
             )
-        )
     elif signals.viral and (signals.prokaryotic or signals.has_eukaryotic_evidence):
         route = "unresolved"
         candidate_class = "conflicting"
@@ -378,13 +409,22 @@ def _signals(evidence: BinEvidence) -> Signals:
     gvclass = GVCLASS_DOMAINS.get(gvclass_domain)
     linked_ssu = bool(evidence.eukaryotic_ssu)
     linked_virus = any(_is_whole_contig_virus(row) for row in evidence.genomad_viruses)
-    euk_supported = checkeuk_resolved and (gvclass == "eukaryotic" or linked_ssu)
+    checkeuk_fallback = (
+        evidence.checkeuk["status"] == "ok"
+        and not checkeuk_lineage
+        and evidence.checkeuk_voting_markers < MIN_CHECKEUK_VOTING_MARKERS
+        and gvclass == "eukaryotic"
+    )
+    euk_supported = (checkeuk_resolved or checkeuk_fallback) and (
+        gvclass == "eukaryotic" or linked_ssu
+    )
     prok_supported = gvclass == "prokaryotic"
     virus_supported = gvclass == "viral" or linked_virus
     return Signals(
         checkeuk_resolved or gvclass == "eukaryotic" or linked_ssu,
         quickclade,
         gvclass,
+        checkeuk_fallback,
         euk_supported,
         prok_supported,
         virus_supported,
@@ -399,7 +439,8 @@ def _supporting(
     if signals.gvclass == "organelle":
         items.append(f"GVClass:{evidence.gvclass['taxonomy_majority']}")
     if signals.eukaryotic:
-        items.append(f"CheckEUK:{evidence.checkeuk['lineage']}")
+        if not signals.checkeuk_fallback:
+            items.append(f"CheckEUK:{evidence.checkeuk['lineage']}")
         if _gvclass_domain(evidence.gvclass) == "d_EUK":
             items.append(f"GVClass:{evidence.gvclass['taxonomy_majority']}")
         items.extend(
@@ -470,6 +511,7 @@ def _evidence_row(
         }
         for row in evidence.genomad_viruses
     ]
+    taxonomy, taxonomy_source = _taxonomy(evidence, decision)
     return {
         **sample,
         "bin_id": bin_id,
@@ -478,6 +520,8 @@ def _evidence_row(
         "reason": decision.reason,
         "checkeuk_status": evidence.checkeuk["status"],
         "checkeuk_lineage": evidence.checkeuk["lineage"],
+        "taxonomy": taxonomy,
+        "taxonomy_source": taxonomy_source,
         "quickclade_domain": _quickclade_domain(evidence.quickclade),
         "quickclade_lineage": evidence.quickclade["lineage"],
         "quickclade_confidence": evidence.quickclade["Confidence"],
@@ -489,6 +533,15 @@ def _evidence_row(
         "supporting_evidence": _json(decision.supporting),
         "conflicting_evidence": _json(decision.conflicting),
     }
+
+
+def _taxonomy(evidence: BinEvidence, decision: Decision) -> tuple[str, str]:
+    lineage = evidence.checkeuk["lineage"].strip()
+    if evidence.checkeuk["status"] == "ok" and lineage:
+        return lineage, "checkeuk"
+    if decision.reason == FALLBACK_REASON:
+        return evidence.gvclass["taxonomy_majority"], "gvclass_fallback"
+    return "", ""
 
 
 def _json(value: object) -> str:

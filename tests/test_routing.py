@@ -8,6 +8,12 @@ from protist_meta.collect import StageManifest
 from protist_meta.routing import route_bins
 
 
+FALLBACK_REASON = (
+    "GVClass supports a eukaryotic route; CheckEUK has too few markers to name "
+    "a lineage"
+)
+
+
 def _write_tsv(path: Path, fields: tuple[str, ...], rows: list[dict[str, str]]):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -36,6 +42,7 @@ def _write_reports(
     gvclass: list[dict[str, str]],
     ssu: list[dict[str, str]],
     viruses: list[dict[str, str]],
+    voting_markers: str = "74",
 ):
     _write_tsv(
         directories["quickclade"] / "quickclade.tsv",
@@ -46,6 +53,17 @@ def _write_reports(
         directories["checkeuk"] / "result_checkeuk/checkeuk_report.tsv",
         ("genome", "status", "lineage"),
         checkeuk,
+    )
+    _write_tsv(
+        directories["checkeuk"] / "result_checkeuk/checkeuk_report_detail.tsv",
+        ("genome", "marker_tax_host_lineage_selected_markers"),
+        [
+            {
+                "genome": row["genome"],
+                "marker_tax_host_lineage_selected_markers": voting_markers,
+            }
+            for row in checkeuk
+        ],
     )
     _write_tsv(
         directories["gvclass"] / "output/gvclass_summary.tsv",
@@ -631,6 +649,8 @@ def test_route_bins_accepts_an_empty_bin_set_without_native_tables(
             "reason",
             "checkeuk_status",
             "checkeuk_lineage",
+            "taxonomy",
+            "taxonomy_source",
             "quickclade_domain",
             "quickclade_lineage",
             "quickclade_confidence",
@@ -872,3 +892,137 @@ def test_route_bins_ignores_quickclade_routing(
     assert (output / route / "bin_3.fna").read_bytes() == (
         bin_dir / "bin_3.fa"
     ).read_bytes()
+
+
+@pytest.mark.parametrize(
+    ("voting_markers", "gvclass_lineage", "expected"),
+    [
+        (
+            "4",
+            "d_EUK;p_example",
+            (
+                "eukaryotic",
+                "gvclass_fallback",
+                "d_EUK;p_example",
+                FALLBACK_REASON,
+            ),
+        ),
+        (
+            "",
+            "d_EUK;p_example",
+            (
+                "eukaryotic",
+                "gvclass_fallback",
+                "d_EUK;p_example",
+                FALLBACK_REASON,
+            ),
+        ),
+        (
+            "5",
+            "d_EUK;p_example",
+            (
+                "unresolved",
+                "",
+                "",
+                "eukaryotic evidence does not meet the combined support rule",
+            ),
+        ),
+        (
+            "4",
+            "d_BAC;p_example",
+            ("prokaryotic", "", "", None),
+        ),
+    ],
+    ids=["few-markers", "empty-markers", "enough-markers", "prokaryotic"],
+)
+def test_route_bins_falls_back_to_gvclass_for_few_checkeuk_markers(
+    tmp_path: Path,
+    voting_markers: str,
+    gvclass_lineage: str,
+    expected: tuple[str, str, str, str | None],
+) -> None:
+    route, source, taxonomy, reason = expected
+    sample_path = tmp_path / "sample.json"
+    _sample(sample_path)
+    bin_dir = tmp_path / "bins"
+    bin_dir.mkdir()
+    (bin_dir / "bin_1.fa").write_text(">contig_1\nACGT\n", encoding="utf-8")
+    directories = _evidence_dirs(tmp_path / "native")
+    _write_reports(
+        directories,
+        quickclade=[
+            {
+                "#QueryName": "bin_1.fa",
+                "Q_Bases": "4",
+                "lineage": "",
+                "ConfLevel": "",
+                "Confidence": "",
+            }
+        ],
+        checkeuk=[{"genome": "bin_1", "status": "ok", "lineage": ""}],
+        gvclass=[
+            {
+                "query": "bin_1",
+                "taxonomy_majority": gvclass_lineage,
+                "taxonomy_confidence": "low_support",
+                "domain": "",
+            }
+        ],
+        ssu=[],
+        viruses=[],
+        voting_markers=voting_markers,
+    )
+
+    output = route_bins(sample_path, bin_dir, directories, tmp_path / "routing")
+    evidence = _read_evidence(output / "evidence.tsv")["bin_1"]
+
+    assert evidence["route"] == route
+    assert evidence["taxonomy_source"] == source
+    assert evidence["taxonomy"] == taxonomy
+    if reason is not None:
+        assert evidence["reason"] == reason
+
+
+def test_route_bins_keeps_checkeuk_taxonomy_when_a_lineage_exists(
+    tmp_path: Path,
+) -> None:
+    sample_path = tmp_path / "sample.json"
+    _sample(sample_path)
+    bin_dir = tmp_path / "bins"
+    bin_dir.mkdir()
+    (bin_dir / "bin_1.fa").write_text(">contig_1\nACGT\n", encoding="utf-8")
+    directories = _evidence_dirs(tmp_path / "native")
+    _write_reports(
+        directories,
+        quickclade=[
+            {
+                "#QueryName": "bin_1.fa",
+                "Q_Bases": "4",
+                "lineage": "",
+                "ConfLevel": "",
+                "Confidence": "",
+            }
+        ],
+        checkeuk=[
+            {"genome": "bin_1", "status": "ok", "lineage": "sg__SAR;p__Ochrophyta"}
+        ],
+        gvclass=[
+            {
+                "query": "bin_1",
+                "taxonomy_majority": "d_EUK;p_other",
+                "taxonomy_confidence": "low_support",
+                "domain": "",
+            }
+        ],
+        ssu=[],
+        viruses=[],
+        voting_markers="2",
+    )
+
+    output = route_bins(sample_path, bin_dir, directories, tmp_path / "routing")
+    evidence = _read_evidence(output / "evidence.tsv")["bin_1"]
+
+    assert evidence["route"] == "eukaryotic"
+    assert evidence["reason"] == "CheckEUK and GVClass support a eukaryotic route"
+    assert evidence["taxonomy_source"] == "checkeuk"
+    assert evidence["taxonomy"] == "sg__SAR;p__Ochrophyta"
