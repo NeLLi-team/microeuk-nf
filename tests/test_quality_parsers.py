@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from protist_meta.quality_parsers import parse_quality
+from protist_meta.quality_parsers import (
+    GtdbtkCall,
+    SymclatronEvidence,
+    parse_quality,
+    read_gtdbtk_calls,
+)
 
 CHECKEUK_FIELDS = (
     "genome",
@@ -401,15 +406,22 @@ def test_gtdbtk_parses_each_rank_and_flags_native_evidence_gap(tmp_path: Path) -
     assert any("ANI" in gap and "RED" in gap for gap in parsed.evidence_gaps)
 
 
-def test_symclatron_is_inapplicable_until_routed(tmp_path: Path) -> None:
-    """Symclatron keeps raw prediction data but cannot assert applicability."""
-    report = _write_tsv(
+BACTERIA = "d__Bacteria;p__Pseudomonadota;c__Alphaproteobacteria"
+APPLICABLE = {
+    "eukaryotic_bins": frozenset(),
+    "viral_bins": frozenset(),
+    "gtdbtk": {"bin_6": GtdbtkCall(BACTERIA, "N/A")},
+}
+
+
+def _symclatron_report(tmp_path: Path, uni56: str = "80.5") -> Path:
+    return _write_tsv(
         tmp_path / "symclatron_results.tsv",
         SYMCLATRON_FIELDS,
         [
             {
                 "taxon_oid": "bin_6.faa",
-                "completeness_UNI56": "0",
+                "completeness_UNI56": uni56,
                 "classification": "Symbiont;Host-associated",
                 "confidence": "0.9",
                 "passes_confidence_threshold": "True",
@@ -418,10 +430,28 @@ def test_symclatron_is_inapplicable_until_routed(tmp_path: Path) -> None:
         ],
     )
 
-    parsed = parse_quality("Symclatron", report)
+
+def _symclatron_phenotype(
+    tmp_path: Path,
+    uni56: str = "80.5",
+    **changes: object,
+) -> dict[str, object]:
+    evidence = SymclatronEvidence(**{**APPLICABLE, **changes})
+    report = _symclatron_report(tmp_path, uni56)
+    parsed = parse_quality("Symclatron", report, symclatron_evidence=evidence)
+    assert len(parsed.phenotypes) == 1
+    return parsed.phenotypes[0]
+
+
+def test_symclatron_is_applicable_when_every_check_passes(tmp_path: Path) -> None:
+    """A bacterial, non-viral, non-eukaryotic, complete bin is interpretable."""
+    report = _symclatron_report(tmp_path)
+    evidence = SymclatronEvidence(**APPLICABLE)
+
+    parsed = parse_quality("Symclatron", report, symclatron_evidence=evidence)
 
     assert parsed.target_ids == ("bin_6",)
-    assert parsed.qc[0]["completeness_percent"] == 0.0
+    assert parsed.qc[0]["completeness_percent"] == 80.5
     assert parsed.qc[0]["completeness_basis"] == "UNI56 marker inventory (56 markers)"
     assert parsed.phenotypes == [
         {
@@ -432,12 +462,182 @@ def test_symclatron_is_inapplicable_until_routed(tmp_path: Path) -> None:
             "threshold": 0.725,
             "passes_threshold": True,
             "thresholded_class": "Symbiont;Host-associated",
-            "is_applicable": False,
-            "applicability_reason": (
-                "Requires supported prokaryotic routing and completeness policy"
-            ),
+            "is_applicable": True,
+            "applicability_reason": None,
         }
     ]
+    assert any("GTDB-Tk warnings" in gap for gap in parsed.evidence_gaps)
+
+
+@pytest.mark.parametrize(
+    ("uni56", "changes", "reason"),
+    [
+        pytest.param(
+            "80.5",
+            {"eukaryotic_bins": frozenset({"bin_6"})},
+            "CheckEUK assigns eukaryotic taxonomy",
+            id="checkeuk-lineage",
+        ),
+        pytest.param(
+            "80.5",
+            {"viral_bins": frozenset({"bin_6"})},
+            "GVClass majority is viral",
+            id="gvclass-viral-majority",
+        ),
+        pytest.param(
+            "80.5",
+            {"gtdbtk": {"bin_6": GtdbtkCall(BACTERIA, "Domain Questionable")}},
+            "GTDB-Tk flags the domain as questionable",
+            id="gtdbtk-domain-questionable",
+        ),
+        pytest.param(
+            "80.5",
+            {"gtdbtk": {"bin_6": GtdbtkCall("Unclassified Bacteria", "N/A")}},
+            "No GTDB-Tk bacterial or archaeal classification",
+            id="gtdbtk-unclassified",
+        ),
+        pytest.param(
+            "80.5",
+            {"gtdbtk": {}},
+            "No GTDB-Tk bacterial or archaeal classification",
+            id="gtdbtk-missing",
+        ),
+        pytest.param(
+            "49.99",
+            {},
+            "UNI56 completeness below 50 percent",
+            id="uni56-below-floor",
+        ),
+    ],
+)
+def test_symclatron_reports_the_failed_check(
+    tmp_path: Path,
+    uni56: str,
+    changes: dict[str, object],
+    reason: str,
+) -> None:
+    """Each failed check makes the call inapplicable with its own reason."""
+    phenotype = _symclatron_phenotype(tmp_path, uni56, **changes)
+
+    assert phenotype["is_applicable"] is False
+    assert phenotype["applicability_reason"] == reason
+    assert phenotype["raw_class"] == "Symbiont;Host-associated"
+    assert phenotype["raw_score"] == 0.9
+    assert phenotype["passes_threshold"] is True
+
+
+@pytest.mark.parametrize(
+    "classification",
+    ["d__Bacteria;p__Pseudomonadota", "d__Archaea;p__Asgardarchaeota"],
+)
+def test_symclatron_accepts_bacteria_archaea_and_the_uni56_floor(
+    tmp_path: Path,
+    classification: str,
+) -> None:
+    """Both prokaryotic domains pass and UNI56 equal to 50 is interpretable."""
+    phenotype = _symclatron_phenotype(
+        tmp_path,
+        "50",
+        gtdbtk={"bin_6": GtdbtkCall(classification, "N/A")},
+    )
+
+    assert phenotype["is_applicable"] is True
+    assert phenotype["applicability_reason"] is None
+
+
+def test_symclatron_reports_the_first_failed_check(tmp_path: Path) -> None:
+    """Checks run in the study's order: CheckEUK, GVClass, domain, UNI56."""
+    failing = {
+        "eukaryotic_bins": frozenset({"bin_6"}),
+        "viral_bins": frozenset({"bin_6"}),
+        "gtdbtk": {"bin_6": GtdbtkCall("Unclassified Bacteria", "domain questionable")},
+    }
+    expected = [
+        ("CheckEUK assigns eukaryotic taxonomy", {}),
+        ("GVClass majority is viral", {"eukaryotic_bins": frozenset()}),
+        (
+            "GTDB-Tk flags the domain as questionable",
+            {"eukaryotic_bins": frozenset(), "viral_bins": frozenset()},
+        ),
+    ]
+    for reason, relaxed in expected:
+        phenotype = _symclatron_phenotype(tmp_path, "10", **{**failing, **relaxed})
+        assert phenotype["applicability_reason"] == reason
+
+    unclassified = {
+        **failing,
+        "eukaryotic_bins": frozenset(),
+        "viral_bins": frozenset(),
+    }
+    unclassified["gtdbtk"] = {"bin_6": GtdbtkCall("Unclassified Bacteria", "N/A")}
+    phenotype = _symclatron_phenotype(tmp_path, "10", **unclassified)
+    assert phenotype["applicability_reason"] == (
+        "No GTDB-Tk bacterial or archaeal classification"
+    )
+
+
+def test_symclatron_requires_applicability_evidence(tmp_path: Path) -> None:
+    """Symclatron cannot be parsed without the evidence that decides applicability."""
+    report = _symclatron_report(tmp_path)
+
+    with pytest.raises(ValueError, match="symclatron_evidence"):
+        parse_quality("Symclatron", report)
+
+
+def test_applicability_evidence_is_only_for_symclatron(tmp_path: Path) -> None:
+    """Other tools reject Symclatron evidence rather than ignoring it."""
+    report = _write_tsv(tmp_path / "checkm1.tsv", CHECKM1_FIELDS, [])
+
+    with pytest.raises(ValueError, match="symclatron_evidence"):
+        parse_quality(
+            "CheckM1",
+            report,
+            symclatron_evidence=SymclatronEvidence(**APPLICABLE),
+        )
+
+
+def test_read_gtdbtk_calls_keeps_classification_and_warnings(tmp_path: Path) -> None:
+    """GTDB-Tk calls come from every summary with their native warning text."""
+    first = _write_tsv(
+        tmp_path / "gtdbtk.bac120.summary.tsv",
+        GTDBTK_FIELDS,
+        [
+            {
+                "user_genome": "bin_1.fa",
+                "classification": BACTERIA,
+                "classification_method": "ani_screen",
+                "warnings": "N/A",
+            }
+        ],
+    )
+    second = _write_tsv(
+        tmp_path / "gtdbtk.ar53.summary.tsv",
+        GTDBTK_FIELDS,
+        [
+            {
+                "user_genome": "bin_2",
+                "classification": "d__Archaea;p__Asgardarchaeota",
+                "classification_method": "taxonomic classification defined by topology",
+                "warnings": (
+                    "Genome has more than 20% of markers with multiple hits; "
+                    "Domain questionable"
+                ),
+            }
+        ],
+    )
+
+    calls = read_gtdbtk_calls([first, second])
+
+    assert calls == {
+        "bin_1": GtdbtkCall(BACTERIA, "N/A"),
+        "bin_2": GtdbtkCall(
+            "d__Archaea;p__Asgardarchaeota",
+            "Genome has more than 20% of markers with multiple hits; "
+            "Domain questionable",
+        ),
+    }
+    with pytest.raises(ValueError, match="duplicate GTDB-Tk target"):
+        read_gtdbtk_calls([first, first])
 
 
 def test_quickclade_uses_exact_basename_and_per_rank_scores(tmp_path: Path) -> None:

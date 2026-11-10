@@ -15,7 +15,12 @@ from protist_meta.annotation_parsers import parse_eggnog, parse_interpro
 from protist_meta.checkm2 import validate_checkm2_coverage
 from protist_meta.gene_inputs import lift_prodigal_gene, load_prodigal_origins
 from protist_meta.gene_parsers import parse_braker3, parse_prodigal_gv
-from protist_meta.quality_parsers import ParsedRows, parse_quality
+from protist_meta.quality_parsers import (
+    ParsedRows,
+    SymclatronEvidence,
+    parse_quality,
+    read_gtdbtk_calls,
+)
 from protist_meta.sequence_parsers import (
     ParsedSequenceRows,
     parse_checkv,
@@ -69,6 +74,7 @@ CHECKM2_NO_ANNOTATION_NOTE = (
     "CheckM2 ran gene calling and DIAMOND, but DIAMOND returned no annotations; "
     "CheckM2 quality prediction is unavailable."
 )
+VIRAL_GVCLASS_DOMAINS = {"NCLDV", "MIRUS", "PPV"}
 RESULT_ID_FIELDS = {
     "read_stats": "record_id",
     "assemblies": "assembly_id",
@@ -476,12 +482,20 @@ def _collect_quality(
         raise FileNotFoundError(f"no native quality tables at {path}")
     observed: list[str] = []
     gaps: set[str] = set()
+    evidence = None
+    if manifest.stage == "symclatron":
+        evidence = _symclatron_evidence(context, directory, manifest)
     for report_path in paths:
         detail = None
         if manifest.stage == "checkeuk":
             detail = report_path.with_name("checkeuk_report_detail.tsv")
             _artifact(context, detail, "checkeuk.detail", "qc_report", manifest.stage)
-        parsed = parse_quality(manifest.stage, report_path, detail_path=detail)
+        parsed = parse_quality(
+            manifest.stage,
+            report_path,
+            detail_path=detail,
+            symclatron_evidence=evidence,
+        )
         observed.extend(parsed.target_ids)
         gaps.update(parsed.evidence_gaps)
         _append_quality(context, report_path, manifest.stage, parsed)
@@ -517,6 +531,42 @@ def _collect_quality(
             f"{manifest.stage} output does not cover exactly its input bins"
         )
     context.records["stages"][-1]["notes"] = "\n".join(sorted(gaps)) or None
+
+
+def _symclatron_evidence(
+    context: CollectionContext,
+    directory: Path,
+    manifest: StageManifest,
+) -> SymclatronEvidence:
+    """Gather the calls that decide Symclatron applicability for each bin."""
+    completed = {
+        row["stage_id"]
+        for row in context.records["stages"]
+        if row["status"] == "completed"
+    }
+    if not {"checkeuk", "gvclass"} <= completed:
+        raise ValueError(
+            "Symclatron applicability needs completed CheckEUK and GVClass stages "
+            "collected before it"
+        )
+    taxonomy = context.records["taxonomy"]
+    gtdbtk = directory / manifest.outputs["gtdbtk"]
+    summaries = sorted(gtdbtk.glob("gtdbtk.*.summary.tsv"))
+    if not summaries:
+        raise FileNotFoundError(f"no GTDB-Tk summaries at {gtdbtk}")
+    return SymclatronEvidence(
+        eukaryotic_bins=frozenset(
+            str(row["target_id"]) for row in taxonomy if row["stage_id"] == "checkeuk"
+        ),
+        viral_bins=frozenset(
+            str(row["target_id"])
+            for row in taxonomy
+            if row["stage_id"] == "gvclass"
+            and row["rank"] == "domain"
+            and row["taxon_name"] in VIRAL_GVCLASS_DOMAINS
+        ),
+        gtdbtk=read_gtdbtk_calls(summaries),
+    )
 
 
 def _append_quality(

@@ -5,10 +5,17 @@ from __future__ import annotations
 import csv
 import math
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["ParsedRows", "parse_quality"]
+__all__ = [
+    "GtdbtkCall",
+    "ParsedRows",
+    "SymclatronEvidence",
+    "parse_quality",
+    "read_gtdbtk_calls",
+]
 
 MISSING_VALUES = {"", "na", "n/a", "nan", "none", "nd", "unavailable"}
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
@@ -16,6 +23,8 @@ SCORED_MARKERS = re.compile(r"markers\s+([0-9]+)/([0-9]+)")
 CONFIDENCE_LEVEL = re.compile(r"^([^:]+):([0-9]+(?:\.[0-9]+)?)$")
 FASTA_SUFFIXES = (".fasta", ".fna", ".faa", ".fa")
 SYMCLATRON_THRESHOLD = 0.725
+SYMCLATRON_MIN_UNI56 = 50.0
+PROKARYOTIC_DOMAIN_PREFIXES = ("d__Bacteria;", "d__Archaea;")
 RANKS = {
     "d": "domain",
     "k": "kingdom",
@@ -43,6 +52,29 @@ class ParsedRows:
 
 
 @dataclass(frozen=True, slots=True)
+class GtdbtkCall:
+    """Native GTDB-Tk classification and warning text for one bin."""
+
+    classification: str
+    warnings: str
+
+
+@dataclass(frozen=True, slots=True)
+class SymclatronEvidence:
+    """Other tools' calls that decide whether a Symclatron prediction applies.
+
+    Attributes:
+        eukaryotic_bins: Bins to which CheckEUK assigns a lineage.
+        viral_bins: Bins whose GVClass majority domain is NCLDV, MIRUS, or PPV.
+        gtdbtk: GTDB-Tk call for each bin it classified.
+    """
+
+    eukaryotic_bins: frozenset[str]
+    viral_bins: frozenset[str]
+    gtdbtk: Mapping[str, GtdbtkCall]
+
+
+@dataclass(frozen=True, slots=True)
 class _ParsedToolRows:
     qc: list[NormalizedRow]
     taxonomy: list[NormalizedRow]
@@ -55,6 +87,7 @@ def parse_quality(
     tool: str,
     path: Path,
     detail_path: Path | None = None,
+    symclatron_evidence: SymclatronEvidence | None = None,
 ) -> ParsedRows:
     """Parse one native tool table without adding workflow envelope fields.
 
@@ -62,6 +95,8 @@ def parse_quality(
         tool: Canonical tool name from the stage manifest.
         path: Native TSV output from that tool.
         detail_path: CheckEUK detail TSV with structured marker inventory fields.
+        symclatron_evidence: CheckEUK, GVClass, and GTDB-Tk calls that decide
+            Symclatron applicability. Required for Symclatron, rejected otherwise.
 
     Raises:
         ValueError: If the tool, header, value, or target identifiers are invalid.
@@ -69,16 +104,19 @@ def parse_quality(
     parser_name = _tool_name(tool)
     if detail_path is not None and parser_name != "checkeuk":
         raise ValueError("detail_path is supported only for CheckEUK")
+    if (symclatron_evidence is None) == (parser_name == "symclatron"):
+        raise ValueError("symclatron_evidence is required for and only for Symclatron")
 
     if parser_name == "checkeuk":
         parsed = _parse_checkeuk(path, detail_path)
+    elif symclatron_evidence is not None:
+        parsed = _parse_symclatron(path, symclatron_evidence)
     else:
         parser = {
             "checkm1": _parse_checkm1,
             "checkm2": _parse_checkm2,
             "gvclass": _parse_gvclass,
             "gtdbtk": _parse_gtdbtk,
-            "symclatron": _parse_symclatron,
             "quickclade": _parse_quickclade,
         }[parser_name]
         parsed = parser(path)
@@ -370,7 +408,28 @@ def _parse_gtdbtk(path: Path) -> _ParsedToolRows:
     return _ParsedToolRows([], taxonomy_rows, [], tuple(sorted(observed)))
 
 
-def _parse_symclatron(path: Path) -> _ParsedToolRows:
+def read_gtdbtk_calls(paths: Iterable[Path]) -> dict[str, GtdbtkCall]:
+    """Read each bin's GTDB-Tk classification and warnings from native summaries.
+
+    Raises:
+        ValueError: If a summary is malformed or a bin appears twice.
+    """
+    required = {"user_genome", "classification", "warnings"}
+    calls: dict[str, GtdbtkCall] = {}
+    for path in paths:
+        rows, _ = _read_tsv(path, required)
+        for row in rows:
+            target = _target_id(row["user_genome"])
+            if target in calls:
+                raise ValueError(f"duplicate GTDB-Tk target: {target}")
+            calls[target] = GtdbtkCall(
+                _required_text(row["classification"], "classification"),
+                row["warnings"].strip(),
+            )
+    return calls
+
+
+def _parse_symclatron(path: Path, evidence: SymclatronEvidence) -> _ParsedToolRows:
     required = {
         "taxon_oid",
         "completeness_UNI56",
@@ -389,15 +448,15 @@ def _parse_symclatron(path: Path) -> _ParsedToolRows:
         passes = _boolean(row["passes_confidence_threshold"])
         if passes != (confidence >= SYMCLATRON_THRESHOLD):
             raise ValueError(f"Symclatron threshold flag disagrees for {target}")
+        uni56 = _required_float(row["completeness_UNI56"], "completeness_UNI56", 0, 100)
         qc_rows.append(
             {
                 **_qc_row("symclatron", target),
-                "completeness_percent": _required_float(
-                    row["completeness_UNI56"], "completeness_UNI56", 0, 100
-                ),
+                "completeness_percent": uni56,
                 "completeness_basis": "UNI56 marker inventory (56 markers)",
             }
         )
+        reason = _symclatron_inapplicable_reason(target, uni56, evidence)
         phenotype_rows.append(
             {
                 "record_id": f"symclatron:phenotype:{target}",
@@ -410,13 +469,33 @@ def _parse_symclatron(path: Path) -> _ParsedToolRows:
                     row["classification_thresholded"],
                     "classification_thresholded",
                 ),
-                "is_applicable": False,
-                "applicability_reason": (
-                    "Requires supported prokaryotic routing and completeness policy"
-                ),
+                "is_applicable": reason is None,
+                "applicability_reason": reason,
             }
         )
     return _ParsedToolRows(qc_rows, [], phenotype_rows, tuple(sorted(observed)))
+
+
+def _symclatron_inapplicable_reason(
+    target: str,
+    uni56: float,
+    evidence: SymclatronEvidence,
+) -> str | None:
+    """Return the first failed applicability check in the study's order."""
+    gtdbtk = evidence.gtdbtk.get(target)
+    if target in evidence.eukaryotic_bins:
+        return "CheckEUK assigns eukaryotic taxonomy"
+    if target in evidence.viral_bins:
+        return "GVClass majority is viral"
+    if gtdbtk is not None and "domain questionable" in gtdbtk.warnings.casefold():
+        return "GTDB-Tk flags the domain as questionable"
+    if gtdbtk is None or not gtdbtk.classification.startswith(
+        PROKARYOTIC_DOMAIN_PREFIXES
+    ):
+        return "No GTDB-Tk bacterial or archaeal classification"
+    if uni56 < SYMCLATRON_MIN_UNI56:
+        return "UNI56 completeness below 50 percent"
+    return None
 
 
 def _parse_quickclade(path: Path) -> _ParsedToolRows:
@@ -702,8 +781,9 @@ def _evidence_gaps(tool: str, detail_path: Path | None) -> tuple[str, ...]:
         ),
         "symclatron": (
             (
-                "Symclatron applicability requires downstream taxonomy and "
-                "completeness routing; the parser marks output inapplicable."
+                "Symclatron applicability is decided from the CheckEUK lineage, "
+                "GVClass majority domain, GTDB-Tk domain and warnings, and UNI56 "
+                "completeness; the GTDB-Tk warnings have no normalized catalog fields."
             ),
         ),
         "quickclade": (

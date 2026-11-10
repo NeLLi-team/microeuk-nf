@@ -471,6 +471,103 @@ def test_skipped_checkm2_retains_no_annotation_evidence(tmp_path: Path) -> None:
         ).fetchone() == (8,)
 
 
+def test_symclatron_applicability_uses_collected_screen_and_gtdbtk_evidence(
+    tmp_path: Path,
+) -> None:
+    """A bin with no eukaryotic or viral call and a bacterial GTDB-Tk call passes."""
+    sample, stages = _full_fixture(tmp_path)
+    screen = _checkm2_no_annotation_fixture(tmp_path / "stages")
+    _set_prokaryote_screen(screen, checkeuk_lineage="", gvclass_majority="d_BACTERIA")
+    qc = _prokaryote_qc_fixture(tmp_path / "stages", warnings="N/A")
+
+    bundle_path = collect_records(
+        sample,
+        [*stages[:4], screen, qc],
+        tmp_path / "bundle.json",
+    )
+    bundle = validate_bundle(bundle_path)
+    database = build_catalog(bundle_path, tmp_path / "catalog.sqlite")
+
+    [phenotype] = bundle.phenotypes
+    assert phenotype.bin_id == "prok"
+    assert phenotype.is_applicable is True
+    assert phenotype.applicability_reason is None
+    assert phenotype.raw_class == "Symbiont;Host-associated"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT is_applicable, applicability_reason FROM phenotypes"
+        ).fetchall() == [(1, None)]
+
+
+@pytest.mark.parametrize(
+    ("screen_changes", "qc_changes", "reason"),
+    [
+        pytest.param(
+            {"checkeuk_lineage": "k__Eukaryota"},
+            {},
+            "CheckEUK assigns eukaryotic taxonomy",
+            id="checkeuk",
+        ),
+        pytest.param(
+            {"checkeuk_lineage": "", "gvclass_majority": "d_NCLDV;k_Megaviricetes"},
+            {},
+            "GVClass majority is viral",
+            id="gvclass",
+        ),
+        pytest.param(
+            {"checkeuk_lineage": ""},
+            {"warnings": "Domain questionable"},
+            "GTDB-Tk flags the domain as questionable",
+            id="gtdbtk-warning",
+        ),
+        pytest.param(
+            {"checkeuk_lineage": ""},
+            {"classification": "Unclassified Bacteria"},
+            "No GTDB-Tk bacterial or archaeal classification",
+            id="gtdbtk-domain",
+        ),
+        pytest.param(
+            {"checkeuk_lineage": ""},
+            {"uni56": "12.5"},
+            "UNI56 completeness below 50 percent",
+            id="uni56",
+        ),
+    ],
+)
+def test_symclatron_applicability_reason_follows_collected_evidence(
+    tmp_path: Path,
+    screen_changes: dict[str, str],
+    qc_changes: dict[str, str],
+    reason: str,
+) -> None:
+    """Collection passes each tool's call for the bin to the applicability rule."""
+    sample, stages = _full_fixture(tmp_path)
+    screen = _checkm2_no_annotation_fixture(tmp_path / "stages")
+    _set_prokaryote_screen(
+        screen, **{"gvclass_majority": "d_BACTERIA", **screen_changes}
+    )
+    qc = _prokaryote_qc_fixture(tmp_path / "stages", **qc_changes)
+
+    bundle_path = collect_records(
+        sample,
+        [*stages[:4], screen, qc],
+        tmp_path / "bundle.json",
+    )
+
+    [phenotype] = validate_bundle(bundle_path).phenotypes
+    assert phenotype.is_applicable is False
+    assert phenotype.applicability_reason == reason
+
+
+def test_symclatron_requires_collected_checkeuk_and_gvclass(tmp_path: Path) -> None:
+    """Applicability is not asserted when the all-bin screen was not collected."""
+    sample, stages = _full_fixture(tmp_path)
+    qc = _prokaryote_qc_fixture(tmp_path / "stages")
+
+    with pytest.raises(ValueError, match="CheckEUK and GVClass"):
+        collect_records(sample, [*stages[:4], qc], tmp_path / "bundle.json")
+
+
 def test_zero_gene_source_builds_valid_catalog_with_original_contigs(
     tmp_path: Path,
 ) -> None:
@@ -891,6 +988,83 @@ def _checkm2_no_annotation_fixture(root: Path) -> Path:
         + gvclass_row
         + "prok.fa"
         + gvclass_row,
+    )
+    return stage
+
+
+def _set_prokaryote_screen(
+    screen: Path,
+    *,
+    checkeuk_lineage: str,
+    gvclass_majority: str,
+) -> None:
+    """Give the prokaryotic bin its own CheckEUK lineage and GVClass majority."""
+    checkeuk = screen / "checkeuk/result_checkeuk/checkeuk_report.tsv"
+    text = checkeuk.read_text(encoding="utf-8")
+    prok = "prok.fa\tok\t0\tpfam_union1085_ridge\t\t0\t"
+    checkeuk.write_text(
+        text.replace(f"{prok}k__Eukaryota", f"{prok}{checkeuk_lineage}"),
+        encoding="utf-8",
+    )
+    gvclass = screen / "gvclass/output/gvclass_summary.tsv"
+    text = gvclass.read_text(encoding="utf-8")
+    gvclass.write_text(
+        text.replace("prok.fa\tk__Eukaryota", f"prok.fa\t{gvclass_majority}"),
+        encoding="utf-8",
+    )
+
+
+def _prokaryote_qc_fixture(
+    root: Path,
+    *,
+    classification: str = "d__Bacteria;p__Pseudomonadota",
+    warnings: str = "N/A",
+    uni56: str = "80.5",
+) -> Path:
+    stage = _stage(
+        root,
+        "05_prokaryote_qc",
+        {
+            "stage": "prokaryote_qc",
+            "status": "completed",
+            "tool": "GTDB-Tk;Symclatron",
+            "tool_version": "2.7.2;0.10.10",
+            "database_name": "gtdbtk_db;symclatron_bundled",
+            "database_version": "r232;bundled",
+            "command": "classify routed prokaryotic bins",
+            "tools": {
+                "gtdbtk": {
+                    "version": "2.7.2",
+                    "database_name": "gtdbtk_db",
+                    "database_version": "r232",
+                    "output": "gtdbtk",
+                },
+                "symclatron": {
+                    "version": "0.10.10",
+                    "database_name": "symclatron_bundled",
+                    "database_version": "bundled",
+                    "output": "symclatron/symclatron_results.tsv",
+                },
+            },
+            "outputs": {
+                "gtdbtk": "gtdbtk",
+                "symclatron": "symclatron/symclatron_results.tsv",
+            },
+        },
+    )
+    (stage / "gtdbtk").mkdir()
+    (stage / "symclatron").mkdir()
+    _write(
+        stage / "gtdbtk/gtdbtk.bac120.summary.tsv",
+        "user_genome\tclassification\tclassification_method\twarnings\n"
+        f"prok\t{classification}\tani_screen\t{warnings}\n",
+    )
+    _write(
+        stage / "symclatron/symclatron_results.tsv",
+        "taxon_oid\tcompleteness_UNI56\tclassification\tconfidence\t"
+        "passes_confidence_threshold\tclassification_thresholded\n"
+        f"prok\t{uni56}\tSymbiont;Host-associated\t0.9\tTrue\t"
+        "Symbiont;Host-associated\n",
     )
     return stage
 

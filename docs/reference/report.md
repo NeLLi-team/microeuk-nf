@@ -122,6 +122,21 @@ same-rank taxonomy conflict is a review candidate, not a resolved taxonomic
 decision. A skipped, pending, failed, unrun, or empty BRAKER branch does not
 establish annotation completeness or biological gene absence.
 
+A Symclatron prediction is applicable only when every check below passes.
+The first failed check, in this order, becomes `applicability_reason`:
+
+1. CheckEUK assigns no lineage to the bin.
+2. The GVClass majority domain is not `NCLDV`, `MIRUS` or `PPV`.
+3. The GTDB-Tk warnings do not contain `domain questionable` in any case.
+4. GTDB-Tk classifies the bin as `d__Bacteria` or `d__Archaea`.
+5. Symclatron UNI56 completeness is at least 50 percent.
+
+An applicable prediction has no reason. The raw class, score, threshold and
+threshold flag never change. Collection reads the CheckEUK and GVClass calls
+from the records of the all-bin screen and the GTDB-Tk calls from the native
+summaries beside the Symclatron output, so it stops when the screen is missing
+or did not complete.
+
 User-disabled gene-calling and annotation stages are recorded as `skipped`,
 with tool version `not_run` and a reason naming the requested switch. Disabled
 stages have no gene or annotation result records. When gene calling runs but
