@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1580" viewBox="0 0 1200 1580" role="img" aria-labelledby="workflow-title workflow-desc">
   <title id="workflow-title">microeuk-nf workflow</title>
-  <desc id="workflow-desc">The microeuk-nf workflow from ONT or PacBio HiFi DNA reads through quality control, Myloasm assembly, independent bin and contig evidence, evidence-guided candidate routing, domain-specific gene calling, functional annotation, validated SQLite catalog publication, and executed notebook and HTML reports. RNA and lineage-labeled proteins support eukaryotic gene calling but do not enter DNA assembly. Records and artifacts from every stage are retained. Candidate routes guide downstream analysis and do not establish final taxonomy or accepted MAG status.</desc>
+  <desc id="workflow-desc">The microeuk-nf workflow from ONT or PacBio HiFi DNA reads through quality control, Myloasm assembly, independent bin and contig evidence (three parallel bin screens, SSU loci, viral screening, and Tiara contig classification), evidence-guided candidate routing, route-specific QC (BUSCO and tidk for eukaryotic bins, CheckM1, GTDB-Tk, and Symclatron for prokaryotic bins), optional gene calling and functional annotation that are off by default, validated SQLite catalog publication, and executed notebook and HTML reports. RNA and lineage-labeled proteins support eukaryotic gene calling but do not enter DNA assembly. Records and artifacts from every stage are retained. Candidate routes guide downstream analysis and do not establish final taxonomy or accepted MAG status.</desc>
 
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
@@ -46,9 +46,11 @@
     <path d="M 965 374 V 425 H 895 V 625 H 830 V 649"/>
     <path d="M 1130 215 H 1145 V 455 H 468 V 489"/>
     <path d="M 745 455 V 489"/>
+    <path d="M 1018 455 V 489"/>
     <path d="M 185 591 V 620 H 370 V 649"/>
     <path d="M 468 591 V 649"/>
     <path d="M 745 591 V 649"/>
+    <path d="M 1018 591 V 612 H 920 V 649"/>
 
     <path d="M 600 756 V 775 H 170 V 794"/>
     <path d="M 600 756 V 775 H 460 V 794"/>
@@ -74,6 +76,7 @@
   <path d="M 895 446 V 464" fill="none" stroke="#f7fbf9" stroke-width="9" stroke-linecap="round"/>
   <path d="M 895 446 V 464" fill="none" stroke="#4b5966" stroke-width="3" stroke-linecap="round"/>
   <circle cx="745" cy="455" r="4" fill="#4b5966"/>
+  <circle cx="1018" cy="455" r="4" fill="#4b5966"/>
 
   <!-- Supporting-evidence connectors -->
   <g fill="none" stroke="#28765d" stroke-width="3" stroke-dasharray="8 7" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow-teal)">
@@ -101,7 +104,7 @@
     <g id="read-qc">
       <rect x="445" y="151" width="310" height="78" rx="12" fill="#e7f0f7" stroke="#2d5f7e" stroke-width="2.5"/>
       <text x="600" y="184" font-size="20" font-weight="700" fill="#14324a">Read quality control</text>
-      <text x="600" y="209" font-size="16" fill="#334b5e">Chopper or SeqKit</text>
+      <text x="600" y="209" font-size="16" fill="#334b5e">Chopper or SeqKit · one pass</text>
     </g>
     <g id="assembly">
       <rect x="840" y="151" width="290" height="78" rx="12" fill="#dceaf4" stroke="#245b7a" stroke-width="3"/>
@@ -134,7 +137,7 @@
       <rect x="50" y="490" width="270" height="101" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5"/>
       <text x="185" y="521" font-size="19" font-weight="700" fill="#174c3c">Every accepted bin</text>
       <text x="185" y="548" font-size="16" fill="#245847">CheckEUK · CheckM2 · GVClass</text>
-      <text x="185" y="573" font-size="14" fill="#45675c">independent screens</text>
+      <text x="185" y="573" font-size="14" fill="#45675c">three independent, parallel tools</text>
     </g>
     <g id="ssu-evidence">
       <rect x="350" y="490" width="235" height="101" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5"/>
@@ -148,18 +151,17 @@
       <text x="745" y="552" font-size="15" fill="#245847">assembly-contig evidence</text>
       <text x="745" y="574" font-size="14" fill="#45675c">whole contigs vs. provirus intervals</text>
     </g>
-    <g id="evidence-key">
-      <rect x="905" y="490" width="225" height="101" rx="12" fill="#ffffff" stroke="#7aa795" stroke-width="2"/>
-      <text x="1018" y="518" font-size="17" font-weight="700" fill="#174c3c">Evidence stays distinct</text>
-      <text x="1018" y="544" font-size="14" fill="#45675c">methods and units retained</text>
-      <text x="1018" y="565" font-size="14" fill="#45675c">missing values stay null</text>
-      <text x="1018" y="583" font-size="14" fill="#45675c">conflicts remain visible</text>
+    <g id="tiara-evidence">
+      <rect x="905" y="490" width="225" height="101" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5"/>
+      <text x="1018" y="526" font-size="19" font-weight="700" fill="#174c3c">Tiara</text>
+      <text x="1018" y="552" font-size="15" fill="#245847">contig classification</text>
+      <text x="1018" y="574" font-size="14" fill="#45675c">assembly-wide, per contig</text>
     </g>
 
     <g id="evidence-integration">
       <rect x="250" y="650" width="700" height="106" rx="14" fill="#d7eee6" stroke="#1f6651" stroke-width="3"/>
       <text x="600" y="683" font-size="21" font-weight="700" fill="#174c3c">Evidence integration</text>
-      <text x="600" y="710" font-size="16" fill="#245847">QuickClade · CheckEUK · GVClass · linked SSU · whole-contig viral calls</text>
+      <text x="600" y="710" font-size="14" fill="#245847">QuickClade · CheckEUK · GVClass · CheckM2 · Tiara · linked SSU · whole-contig viral calls</text>
       <text x="600" y="736" font-size="15" fill="#45675c">assign one candidate route; retain absent and conflicting evidence</text>
     </g>
 
@@ -195,34 +197,34 @@
     </g>
 
     <g id="repeat-masking">
-      <rect x="485" y="951" width="280" height="85" rx="12" fill="#f6ecde" stroke="#9c5a16" stroke-width="2.5"/>
+      <rect x="485" y="951" width="280" height="85" rx="12" fill="#f6ecde" stroke="#9c5a16" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="625" y="981" font-size="18" font-weight="700" fill="#70400f">Softmasked eukaryotic bins</text>
       <text x="625" y="1007" font-size="15" fill="#785a37">RepeatModeler · RepeatMasker</text>
-      <text x="625" y="1027" font-size="13" fill="#806848">or compatible supplied softmask</text>
+      <text x="625" y="1027" font-size="13" fill="#806848">opt-in · or supplied softmask</text>
     </g>
 
     <g id="rna-support">
-      <rect x="785" y="960" width="335" height="80" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5"/>
+      <rect x="785" y="960" width="335" height="80" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="953" y="989" font-size="18" font-weight="700" fill="#174c3c">RNA → bin-matched alignments</text>
       <text x="953" y="1014" font-size="14" fill="#45675c">BRAKER3 support only; never DNA assembly</text>
       <text x="953" y="1032" font-size="13" fill="#58796e">compatible sequencing technology required</text>
     </g>
 
     <g id="protein-support">
-      <rect x="785" y="1052" width="335" height="67" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5"/>
+      <rect x="785" y="1052" width="335" height="67" rx="12" fill="#e6f3ef" stroke="#28765d" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="953" y="1079" font-size="18" font-weight="700" fill="#174c3c">Reference proteins</text>
       <text x="953" y="1104" font-size="14" fill="#45675c">explicit compatible lineage label</text>
     </g>
 
     <g id="prodigal-gv">
-      <rect x="180" y="1090" width="280" height="91" rx="12" fill="#f3eaf1" stroke="#77516f" stroke-width="2.5"/>
+      <rect x="180" y="1090" width="280" height="91" rx="12" fill="#f3eaf1" stroke="#77516f" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="320" y="1121" font-size="20" font-weight="700" fill="#573750">Prodigal-GV</text>
       <text x="320" y="1147" font-size="15" fill="#674e62">prokaryotic + viral bins</text>
       <text x="320" y="1168" font-size="14" fill="#735f6f">plus unbinned geNomad viral contigs</text>
     </g>
 
     <g id="braker3">
-      <rect x="485" y="1125" width="280" height="91" rx="12" fill="#f6ecde" stroke="#9c5a16" stroke-width="2.5"/>
+      <rect x="485" y="1125" width="280" height="91" rx="12" fill="#f6ecde" stroke="#9c5a16" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="625" y="1157" font-size="20" font-weight="700" fill="#70400f">BRAKER3</text>
       <text x="625" y="1183" font-size="15" fill="#785a37">matched RNA and/or proteins</text>
       <text x="625" y="1204" font-size="14" fill="#806848">unsupported evidence stays pending</text>
@@ -234,13 +236,25 @@
       <text x="1020" y="1191" font-size="14" fill="#5f6368">contigs, bins, and evidence</text>
     </g>
 
+    <g id="eukaryote-qc">
+      <rect x="60" y="1205" width="240" height="68" rx="12" fill="#f6ecde" stroke="#9c5a16" stroke-width="2.5"/>
+      <text x="180" y="1231" font-size="18" font-weight="700" fill="#70400f">Eukaryote QC</text>
+      <text x="180" y="1252" font-size="15" fill="#785a37">BUSCO · tidk</text>
+      <text x="180" y="1267" font-size="12" fill="#806848">on routed eukaryotic bins</text>
+    </g>
+
+    <g id="optional-key">
+      <text x="60" y="1292" font-size="12" fill="#7a4c17" text-anchor="start">dashed outline: optional stage,</text>
+      <text x="60" y="1306" font-size="12" fill="#7a4c17" text-anchor="start">off by default (--enable-gene-calling)</text>
+    </g>
+
     <g id="called-proteins">
-      <rect x="320" y="1235" width="265" height="69" rx="12" fill="#ffffff" stroke="#5e6872" stroke-width="2.5"/>
+      <rect x="320" y="1235" width="265" height="69" rx="12" fill="#ffffff" stroke="#5e6872" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="453" y="1264" font-size="19" font-weight="700" fill="#28323b">Gene proteins</text>
       <text x="453" y="1288" font-size="14" fill="#5f6d78">zero-gene results remain valid</text>
     </g>
     <g id="functional-annotation">
-      <rect x="640" y="1235" width="330" height="69" rx="12" fill="#e7f0e8" stroke="#46724d" stroke-width="2.5"/>
+      <rect x="640" y="1235" width="330" height="69" rx="12" fill="#e7f0e8" stroke="#46724d" stroke-width="2.5" stroke-dasharray="8 5"/>
       <text x="805" y="1264" font-size="19" font-weight="700" fill="#315337">Functional annotation</text>
       <text x="805" y="1288" font-size="15" fill="#4d6651">eggNOG-mapper · InterProScan</text>
     </g>

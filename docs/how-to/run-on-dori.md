@@ -1,32 +1,109 @@
 # Run and resume one sample on Dori
 
 `scripts/run-allocation.slurm` runs one sample inside one Dori allocation.
-Nextflow uses its local executor with `process.maxForks = 1`. The full workflow
-has 17 processes with default options, 16 with annotation disabled, and 12 with
-gene calling disabled; the core workflow has seven. Process labels in
-`conf/resources.config` set per-process CPU, memory, and time requests. The
-launcher reserves 24 GB for Nextflow and allocation overhead and gives the
-remaining memory to the local executor.
+Nextflow uses its local executor. `process.maxForks = 1` allows one running
+task per process, so tasks of different processes overlap while the executor
+has free CPUs and memory. The launcher sets the executor limits to the
+allocation's CPU count and to its memory minus a 24 GB reserve for Nextflow and
+allocation overhead.
 
-Full mode completes prokaryotic characterization with CheckM1, GTDB-Tk, and
-Symclatron before starting optional gene calling for the same sample. Its native
-outputs remain available if gene calling later fails. The dependency is per
-sample; a failure elsewhere in a multi-sample Nextflow run can still stop the
-workflow.
+## Process graph
+
+The number of processes depends on the run mode and the optional stages:
+
+| Run | Processes |
+|---|---:|
+| Core mode | 8 |
+| Full mode with default options (gene calling off) | 21 |
+| Full mode with `--enable-gene-calling` | 25 |
+| Full mode with `--enable-gene-calling --skip-annotation` | 24 |
+| Full mode with `--enable-gene-calling --enable-repeat-masking` | 26 |
+| Full mode with `--enable-gene-calling --enable-repeat-masking --skip-annotation` | 25 |
+
+Core mode runs a preflight check, `READ_QC`, `ASSEMBLE`, `MAP_DEPTH_QUICKBIN`,
+and four collection processes (`COLLECT_RECORDS`, `BUILD_CATALOG`,
+`BUILD_REPORT`, `BUILD_VISUALIZATION`). Full mode replaces the core preflight
+with `FULL_PREFLIGHT` and adds 13 processes:
+
+- Assembly consumers: `SSU_EXTRACT`, `CONTIG_CLASSIFY` (Tiara), and
+  `VIRAL_SCREEN` (geNomad, then CheckV).
+- Bin screens: `GVCLASS_SCREEN`, `CHECKEUK_SCREEN`, and `CHECKM2_SCREEN`, which
+  run as separate processes. The merge process `ALL_BIN_SCREEN` builds the
+  published `04_all_bin_screen` directory from their outputs.
+- `ROUTE_BINS`, which needs the merged screen, SSU, viral, and Tiara results.
+- Routed-bin analyses: `EUKARYOTE_QC` (BUSCO, then tidk), `CHECKM1_QC`,
+  `GTDBTK_CLASSIFY`, and `SYMCLATRON_CLASSIFY`. The merge process
+  `PROKARYOTE_CHARACTERIZATION` builds the published `08_prokaryote_qc`
+  directory from the last three.
+
+`--enable-gene-calling` adds `MAP_RNA_EVIDENCE`, `BRAKER3_EUKARYOTES`,
+`PRODIGAL_GV_GENES`, and `FUNCTIONAL_ANNOTATION`. `--skip-annotation` removes
+`FUNCTIONAL_ANNOTATION`. `--enable-repeat-masking` adds
+`REPEAT_MASK_EUKARYOTES`.
+
+Tool processes that feed a merge process do not publish. Each saves its own
+`.command.sh` as `<tool>/command.sh`, and the merge process records that file in
+`stage.json`.
+
+`READ_QC` reads the input once. It decompresses the file, tees the stream into
+`seqkit stats -a` for the raw table, filters with Chopper (ONT) or SeqKit
+(HiFi), tees the filtered stream into a second `seqkit stats -a`, and compresses
+with pigz. A failed statistics job fails the task.
+
+## Resource labels
+
+Process labels in `conf/resources.config` set the CPU, memory, and time request
+of each process.
+
+| Label | Processes | CPUs | Memory | Time |
+|---|---|---:|---:|---:|
+| `qc` | `CORE_PREFLIGHT`, `FULL_PREFLIGHT`, `ROUTE_BINS` | 4 | 16 GB | 2 h |
+| `read_qc` | `READ_QC` | 16 | 32 GB | 6 h, then 12 h on retry |
+| `assembly` | `ASSEMBLE` | 32 | 256 GB | 24 h |
+| `mapping` | `MAP_DEPTH_QUICKBIN` | 16 | 96 GB | 12 h |
+| `ssu` | `SSU_EXTRACT` | 8 | 48 GB | 48 h |
+| `contig` | `CONTIG_CLASSIFY` | 8 | 64 GB | 12 h |
+| `viral` | `VIRAL_SCREEN` | 12 | 96 GB | 24 h |
+| `gvclass` | `GVCLASS_SCREEN` | 20 | 96 GB | 48 h |
+| `checkeuk` | `CHECKEUK_SCREEN` | 12 | 96 GB | 48 h |
+| `checkm2` | `CHECKM2_SCREEN` | 8 | 64 GB | 48 h |
+| `checkm1` | `CHECKM1_QC` | 16 | 96 GB | 48 h |
+| `gtdbtk` | `GTDBTK_CLASSIFY` | 32 | 256 GB | 48 h |
+| `symclatron` | `SYMCLATRON_CLASSIFY` | 16 | 64 GB | 48 h |
+| `eukqc` | `EUKARYOTE_QC` | 16 | 96 GB | 24 h |
+| `gene` | `REPEAT_MASK_EUKARYOTES`, `MAP_RNA_EVIDENCE`, `BRAKER3_EUKARYOTES`, `PRODIGAL_GV_GENES` | 16 | 160 GB | 48 h |
+| `annotation` | `FUNCTIONAL_ANNOTATION` | 16 | 128 GB | 24 h |
+| `report` | `ALL_BIN_SCREEN`, `PROKARYOTE_CHARACTERIZATION`, and the four collection processes | 4 | 16 GB | 2 h |
+
+Independent stages overlap inside the 32-CPU allocation. After assembly,
+`MAP_DEPTH_QUICKBIN` (16 CPUs), `SSU_EXTRACT` (8), and `CONTIG_CLASSIFY` (8)
+together fill 32 CPUs, and `VIRAL_SCREEN` (12) and the bin screens start as CPUs
+free up. The three bin screens request 12, 8, and 20 CPUs, so they cannot all
+run at once. `main.nf` submits them in the order GVClass, CheckEUK, CheckM2.
+`ASSEMBLE` and `GTDBTK_CLASSIFY` each request all 32 CPUs and 256 GB, so each
+runs alone. The actual overlap depends on how long each task runs; read it from
+`timeline.html` and `trace.tsv` in the execution directory.
+
+Full mode completes the prokaryotic merge process before it starts optional
+gene calling for the same sample. The native outputs of CheckM1, GTDB-Tk, and
+Symclatron remain available if gene calling later fails. `EUKARYOTE_QC` does not
+gate gene calling. The dependency is per sample; a failure elsewhere in a
+multi-sample Nextflow run can still stop the workflow.
 
 ## Timeout retries
 
 `READ_QC` and the nested SSUextract `BLAST_ANNOTATE` process get one retry when
-Nextflow reports a process running-time timeout. The first attempt requests
-eight hours and the second requests 16 hours. Other `READ_QC` errors terminate
-the workflow. Nested BLAST annotation retains its existing retries for exit
-code 104 and signal-style exit codes 130 through 145; other errors use its
-existing `finish` strategy.
+Nextflow reports a process running-time timeout. The first `READ_QC` attempt
+requests six hours and the second requests 12 hours. The first `BLAST_ANNOTATE`
+attempt requests eight hours and the second requests 16 hours. Other `READ_QC`
+errors terminate the workflow. Nested BLAST annotation retains its existing
+retries for exit code 104 and signal-style exit codes 130 through 145; other
+errors use its existing `finish` strategy.
 
 The nested workflow receives `--max_time` from the outer `SSU_EXTRACT` process.
 This value caps the request for each nested process attempt. The outer process
 limit must cover the eight-hour first attempt, the 16-hour retry, and all other
-nested stages. The `heavy_qc` label currently gives `SSU_EXTRACT` 48 hours. The
+nested stages. The `ssu` label currently gives `SSU_EXTRACT` 48 hours. The
 Slurm allocation walltime does not raise either process limit.
 
 Judge whether these limits are sufficient from task logs and measured
@@ -56,16 +133,47 @@ paths are resolved from `conf/`, so moving the clone can change the referenced
 targets.
 
 Core mode needs the repository environments and the registered QuickClade
-reference. Full mode also needs these external workspaces:
+reference. Full mode also needs the environments that the pipeline owns, the
+three frozen application clones, and the reference resources of the enabled
+stages.
 
-- the CheckM1, CheckM2, GTDB-Tk, and Symclatron environments in
-  `checkm_manifest`;
-- the geNomad and CheckV environments in `viral_manifest` and
-  `checkv_manifest`; and
-- the CheckEUK, GVClass, and SSUextract application workspaces.
+The pipeline owns these Pixi workspaces below `envs/`:
 
-Install those external workspaces and the reference resources for enabled stages
-separately. The repository scripts do not provision them.
+| Workspace | Environments | Registry entry |
+|---|---|---|
+| `envs/qc` | `checkm1`, `checkm2`, `gtdbtk`, `symclatron` | `checkm_manifest` |
+| `envs/viral` | `genomad`, `checkv` | `viral_manifest`, `checkv_manifest` |
+| `envs/contig` | `tiara` | `contig_manifest` |
+| `envs/eukqc` | `busco`, `tidk` | `eukqc_manifest` |
+
+CheckEUK, GVClass, and SSUextract are frozen Git clones below
+`../protist-meta-runtimes/`, next to the repository clone:
+`checkeuk-0.13.0-86ab78a`, `gvclass-2.1.1-1517cc0`, and
+`ssuextract-1.2.2-4dcf85d`. Each registry entry carries a `git_commit`.
+`protist-meta prepare` and the launcher fail unless the clone is at that commit
+with a clean working tree.
+
+Install the four workspaces once, then each clone's environment:
+
+```bash
+for name in qc viral contig eukqc; do
+  pixi install --all --manifest-path "$project_root/envs/$name/pixi.toml" || exit 1
+done
+for clone in checkeuk-0.13.0-86ab78a gvclass-2.1.1-1517cc0 ssuextract-1.2.2-4dcf85d; do
+  (cd "$project_root/../protist-meta-runtimes/$clone" && pixi install --frozen) || exit 1
+done
+```
+
+After installing `envs/qc`, run `pixi run --manifest-path envs/qc/pixi.toml --environment symclatron symclatron setup` once to download the Symclatron data bundle (1.1 GB) into that environment; preflight checks for it and fails early when it is missing.
+
+**Do not install, reinstall, or update any environment while a job uses it.**
+A running job crashed with a bus error on 2026-11-10 after an environment
+changed under it. Wait until every run that uses the environment has finished,
+then reinstall. This includes the repository setup jobs below, which reinstall
+the BBTools, gene-calling, and annotation environments.
+
+Install the reference resources of the enabled stages separately. The repository
+scripts do not provision them.
 
 Before every setup or analysis submission wave, check the shared queue:
 
@@ -93,9 +201,12 @@ printf '%s\n' "$receipt" > "$project_root/tasks/bootstrap-${job_id}.receipt"
 ```
 
 If the registered Dfam 4.0 directory is absent, submit
-`scripts/install-dfam.slurm` next. Skip this installer when that release is
-already present and valid because it refuses to replace an existing release.
-See [Install Dfam](install-dfam.md) for its checks.
+`scripts/install-dfam.slurm` next. `install-tools.slurm` binds this directory
+into the `repeatmasker` environment, so it needs the directory to exist. A run
+with the default options does not use Dfam; only gene calling with repeat
+masking does. Skip this installer when that release is already present and valid
+because it refuses to replace an existing release. See
+[Install Dfam](install-dfam.md) for its checks.
 
 After Dfam is available, install the remaining repository tool environments,
 then the custom BRAKER3 and InterProScan packages. Wait for the tool job to
@@ -127,10 +238,11 @@ distribution named by its source hash manifests and
 `8c9a8b153e527f8cfc7bf24ee1652d78`. Changing only
 `conf/databases.yaml` does not redirect these setup checks.
 
-The setup commands above install both optional stages. For an installation
-that omits them, use the [dependency contract](../reference/inputs.md#dependency-registry)
-to identify the required environments and resources. The setup scripts do not
-accept the runtime skip switches.
+The setup commands above also install the gene-calling and annotation stages.
+Gene calling is off by default and repeat masking is opt-in. For an installation that omits them, use the
+[dependency contract](../reference/inputs.md#dependency-registry) to identify the
+required environments and resources. The setup scripts do not accept the
+runtime skip switches.
 
 The allocation launcher validates every enabled registry entry and executable.
 Runtime commands set `PIXI_NO_INSTALL=true` and `PIXI_FROZEN=true` and use
@@ -180,7 +292,7 @@ meanings and evidence-pair requirements.
    printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
    ```
 
-   For core mode, replace `full` with `core` and request at least 216 GB.
+   For core mode, replace `full` with `core` and request at least 280 GB.
    Both modes require at least 32 CPUs. Use `--qos=jgi_long` when the required
    walltime exceeds the verified normal-QOS limit. The allocation walltime
    covers the full process graph.
@@ -211,6 +323,15 @@ meanings and evidence-pair requirements.
    summary](https://github.com/nelli-team/microeuk-nf/blob/main/SUMMARY.md)
    before interpreting production results.
 
+## Published results and the work directory
+
+Every process publishes with `publishDir mode: 'link'`. The files below
+`results/` are hard links to files in `work/`. Deleting `work/` therefore does
+not free the space of the published files, and `results/` and `work/` must stay
+on one filesystem. The launcher places both below the run directory. Do not edit
+a published file in place: the edit also changes the cached task output in
+`work/`. Copy the file first.
+
 ## Set the ONT minimum read length
 
 Append `--ont-min-length 1000` to the allocation launcher arguments to retain
@@ -218,37 +339,47 @@ ONT reads of at least 1,000 bases. Chopper applies the existing Phred quality
 threshold of 10. Without this option, `nextflow.config` supplies the length
 default of 500 bases. The option does not change PacBio HiFi filtering.
 
-Repeat the same option on `resume` or `resume-reviewed`. The launcher saves
-the explicit length in `prepared/resume-identity.tsv` and rejects a changed,
-added, or omitted override before starting Nextflow. Use a new run directory to
-change the filter.
+The launcher always records the effective length in
+`prepared/resume-identity.tsv`, including the default of 500. On `resume` or
+`resume-reviewed` it compares the saved value with the requested value, or with
+the default when the option is omitted, and rejects a difference before starting
+Nextflow. Repeat the same option, or omit it when the saved value is the
+default. Use a new run directory to change the filter. A run prepared before the
+identity recorded this key keeps working when the option is omitted.
 
 ## Choose gene calling and annotation
 
-Append `--skip-annotation` to the launcher arguments to retain gene models
-without functional annotation. Append `--skip-gene-calling` to omit both.
-The rest of full mode, including bin quality assessment and classification,
-still runs. Keep the same allocation minimums because these analyses remain
-enabled.
+Gene calling is off by default. In full mode the default run omits repeat
+masking, RNA alignment, BRAKER3, dedicated Prodigal-GV gene calling, and
+functional annotation. The rest of full mode, including bin quality assessment
+and classification, still runs.
 
-For example, after preparing the sample sheet and checking the queue, submit
-a fresh run without either optional stage:
+Append `--enable-gene-calling` to the launcher arguments to switch gene calling
+and functional annotation on. Add `--skip-annotation` to retain gene models
+without functional annotation. `--skip-gene-calling` selects the default
+explicitly. Supply at most one of `--enable-gene-calling` and
+`--skip-gene-calling`. Functional annotation needs gene calling. Keep the same
+allocation minimums for every combination.
+
+For example, after preparing the sample sheet and checking the queue, submit a
+fresh run with gene calling and annotation:
 
 ```bash
-run_dir="$project_root/results/my-sample-no-genes"
+run_dir="$project_root/results/my-sample-genes"
 receipt=$(sbatch --parsable -M perceus-00 -A grp-org-sc-mgs \
   -p dori --qos=jgi_normal --chdir="$project_root" \
   --cpus-per-task=32 --mem=384G --time=72:00:00 \
   scripts/run-allocation.slurm "$samples" "$run_dir" full \
-  --skip-gene-calling) || exit 1
+  --enable-gene-calling) || exit 1
 job_id=${receipt%%;*}
 [[ $job_id =~ ^[0-9]+$ ]] || exit 1
 printf '%s\n' "$receipt" > "$project_root/tasks/allocation-${job_id}.receipt"
 ```
 
-The catalog, executed notebook, and HTML report are still produced. Their stage
-tables identify the disabled analyses. No gene models or functional annotation
-results are reported for those stages.
+The catalog, executed notebook, and HTML report are produced in every case.
+Their stage tables identify the disabled analyses with the reason `Gene calling
+not requested (skip_gene_calling=true).`; no gene models or functional
+annotation results are reported for those stages.
 
 ## Resume the same run
 
@@ -257,14 +388,20 @@ source, sample sheet, registry, and referenced Pixi manifests and locks
 unchanged. The launcher rejects an identity mismatch. Changed inputs require a
 new run directory. A reviewed source repair can use the separate procedure below.
 
-Repeat any skip switches from the fresh run after `resume`. For example, a run
-started with `--skip-annotation` requires `full resume --skip-annotation`.
+Resume keeps the saved gene-calling choice. The launcher reads it from
+`prepared/inputs.json` unless the command line supplies `--enable-gene-calling`
+or `--skip-gene-calling`, and it rejects an explicit option that differs from
+the saved choice. A run prepared before this option existed counts as gene
+calling enabled. Repeat `--skip-annotation` after `resume` when the fresh run
+used it: a run started with `--enable-gene-calling --skip-annotation` requires
+`full resume --skip-annotation`.
+
 Repeat masking is off by default. Opt in with `--enable-repeat-masking` on
 preparation. Resumes retain the prepared repeat choice unless an explicit repeat
 switch is supplied. Runs prepared before this option existed count as masking
 enabled. An ordinary resume rejects an explicit change to the saved choice.
 The repeat-choice restriction applies only in full mode with gene calling
-enabled; core mode and `--skip-gene-calling` exclude repeat computation.
+enabled; core mode and runs with gene calling off exclude repeat computation.
 Changing the switches requires a new run directory. The launcher rejects a
 scope change before starting Nextflow.
 
@@ -291,8 +428,8 @@ Use this procedure only after reviewing the exact source changes and confirming
 which completed scientific stages remain valid. It does not determine whether
 arbitrary code or dependency updates are compatible with cached results.
 
-Keep the original gene-calling and annotation skip switches after the two source
-digests. To explicitly disable repeat masking for a run prepared with masking
+Keep the original annotation skip switch after the two source digests. The
+saved gene-calling choice carries over as in a plain `resume`. To explicitly disable repeat masking for a run prepared with masking
 enabled, add `--skip-repeat-masking` to `resume-reviewed`. This is the only
 stage-choice change allowed during reviewed recovery. The launcher keeps every
 prepared file unchanged, writes the effective repeat choice to the execution
@@ -357,10 +494,11 @@ catalog identity alone does not describe the code used for recovered outputs.
 
 ## Check the timeout retry policy
 
-After installing the repository environments, submit the standalone retry
-check in a small allocation. It tests timeout retries and ordinary exit-code
-failures with both installed Nextflow engines. Run the 32-CPU MICRO workflow
-gate in a separate allocation.
+After installing the repository environments and the SSUextract clone, submit
+the standalone retry check in a small allocation. It tests timeout retries and
+ordinary exit-code failures for `READ_QC` (6 h, then 12 h) with the repository's
+Nextflow engine and for `BLAST_ANNOTATE` (8 h, then 16 h) with the SSUextract
+clone's engine. Run the 32-CPU MICRO workflow gate in a separate allocation.
 
 ```bash
 squeue -M perceus-00 -u fschulz --array

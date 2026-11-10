@@ -1,9 +1,12 @@
 # Install Dfam 4.0 for repeat classification
 
-The full workflow requires the FamDB root and curated-consensus partition from
-Dfam 4.0. `scripts/install-dfam.py` uses fixed release URLs, checks the
-publisher MD5 and byte count for each compressed file, and records SHA-256
-checksums for the installed files.
+A run that enables gene calling and repeat masking
+(`--enable-gene-calling --enable-repeat-masking`) requires the FamDB root and
+curated-consensus partition from Dfam 4.0. Runs with the default options do not
+use Dfam, but `scripts/install-tools.slurm` still binds the Dfam directory into
+the `repeatmasker` environment. `scripts/install-dfam.py` uses fixed release
+URLs, checks the publisher MD5 and byte count for each compressed file, and
+records SHA-256 checksums for the installed files.
 
 Complete `scripts/bootstrap.slurm` and the [shared Dori queue
 check](run-on-dori.md#prepare-environments-and-references) first. From the
@@ -54,5 +57,6 @@ pixi run --as-is --quiet --manifest-path envs/gene/pixi.toml \
 ```
 
 The metadata must report database `Dfam`, version `4.0`, and FamDB creation
-format `3.0.0`. Full-workflow preflight also exports `repeat_peps` and
-`fasta_all` and requires at least one record from each command.
+format `3.0.0`. Preflight for a run with repeat masking also exports
+`repeat_peps` and `fasta_all` and requires at least one record from each
+command.

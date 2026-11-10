@@ -1,13 +1,18 @@
 # microeuk-nf
 
 microeuk-nf is a Nextflow workflow for ONT and PacBio HiFi metagenomes that
-contain microbial eukaryotes, bacteria, archaea, and viruses. It performs read
-QC, assembly, binning, independent quality and taxonomy analyses, and optional
-gene calling and functional annotation. Quality, taxonomy, RNA, and protein
-evidence determine the gene-calling branches. The workflow writes a validated SQLite
-catalog, native visualization bundles, an executed notebook, and an HTML report.
+contain microbial eukaryotes, bacteria, archaea, and viruses. It performs
+single-pass read QC, assembly, and binning. It screens every bin with CheckEUK,
+CheckM2, and GVClass in parallel, classifies contigs with Tiara, and extracts SSU
+loci and screens for viruses. Evidence-based routing then sends bins to
+route-specific QC: BUSCO and tidk for eukaryotic candidates, and CheckM1,
+GTDB-Tk, and Symclatron for prokaryotic candidates. Gene calling and functional
+annotation are optional and off by default. Quality, taxonomy, RNA, and protein
+evidence determine the gene-calling branches. The workflow writes a validated
+SQLite catalog, native visualization bundles, an executed notebook, and an HTML
+report.
 
-![Workflow schematic from long-read input through assembly, bin characterization, evidence-based routing, gene calling, annotation, and catalog and report publication](docs/assets/workflow.svg)
+![Workflow schematic from long-read input through assembly, bin and contig evidence, evidence-based routing, route-specific QC, optional gene calling and annotation, and catalog and report publication](docs/assets/workflow.svg)
 
 *Candidate routes guide downstream analysis; they are not final taxonomy or
 accepted MAG labels.*
@@ -25,9 +30,11 @@ cd microeuk-nf
 ```
 
 The clone is not a standalone full installation. `conf/databases.yaml` points to
-local reference databases, sibling Pixi workspaces for CheckM1, CheckM2,
-GTDB-Tk, Symclatron, geNomad, and CheckV, and application workspaces for
-CheckEUK, GVClass, and SSUextract. Configure those paths for the target Dori
+local reference databases. The repository owns the Pixi workspaces for CheckM1,
+CheckM2, GTDB-Tk, Symclatron (`envs/qc`), geNomad and CheckV (`envs/viral`),
+Tiara (`envs/contig`), and BUSCO and tidk (`envs/eukqc`). CheckEUK, GVClass, and
+SSUextract are frozen Git clones below `../protist-meta-runtimes/`, each pinned
+to a verified commit. Configure the database paths for the target Dori
 filesystem before a full run. The repository installers also retain fixed local
 eggNOG and InterProScan setup paths.
 
@@ -37,10 +44,11 @@ environment setup and submission commands. Copy
 edit its single row, and keep all 13 columns. Input paths are resolved relative
 to that copied sample sheet.
 
-Both optional stages are enabled by default in full mode. Add
-`--skip-annotation` to the allocation launcher to retain gene models without
-functional annotation, or `--skip-gene-calling` to omit both stages. The catalog
-and report record the disabled stages and their reasons.
+Gene calling and functional annotation are off by default in full mode. Add
+`--enable-gene-calling` to the allocation launcher to switch them on, and
+`--skip-annotation` to retain gene models without functional annotation. Repeat
+masking is a further opt-in (`--enable-repeat-masking`). The catalog and report
+record the disabled stages and their reasons.
 
 ## Documentation
 

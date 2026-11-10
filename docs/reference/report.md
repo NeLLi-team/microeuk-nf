@@ -137,11 +137,20 @@ from the records of the all-bin screen and the GTDB-Tk calls from the native
 summaries beside the Symclatron output, so it stops when the screen is missing
 or did not complete.
 
-User-disabled gene-calling and annotation stages are recorded as `skipped`,
-with tool version `not_run` and a reason naming the requested switch. Disabled
-stages have no gene or annotation result records. When gene calling runs but
-produces no proteins, the annotation skip retains that separate reason. The
-stage-state and methods tables display these reasons.
+Gene calling is off by default. Unrequested gene-calling and annotation stages are
+recorded as `skipped`, with tool version `not_run` and a reason naming the switch:
+"Gene calling not requested (skip_gene_calling=true)." for gene calling, and the
+`--skip-annotation` reason for annotation. A core-mode run records every full-mode
+stage that did not run under its real stage identifier. Skipped stages have no gene
+or annotation result records. When gene calling runs but produces no proteins, the
+annotation skip retains that separate reason. The stage-state and methods tables
+display these reasons.
+
+BUSCO rows in the quality table use the same columns as other tools. The completeness
+basis names the lineage and marker count, for example `BUSCO eukaryota_odb12 complete
+(n=129)`. The contamination column holds the duplicated percentage; its basis states
+that this is not a contamination estimate. BUSCO fragmented and missing percentages
+appear in the stage notes. Tiara and tidk stages have artifacts and no result rows.
 
 A core-only fixture or smoke run proves database and report wiring. It does not
 prove that scientific analysis branches ran or that cataloged genomes are

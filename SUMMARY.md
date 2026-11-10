@@ -1,5 +1,14 @@
 # Source-scoped validation
 
+The 2026-11-10 upgrade is newer than every validation record below. It moves the
+pipeline environments into the repository, freezes CheckEUK, GVClass, and
+SSUextract as commit-verified clones, splits the bin screens and prokaryote QC
+into parallel processes, adds Tiara contig classification and BUSCO and tidk
+eukaryote QC, reads the input once in read QC, and turns gene calling off by
+default. Its own validation record will be added after its pilot run. The
+records below describe the older source revisions that they name, not the
+upgraded pipeline.
+
 microeuk-nf is implemented for ONT and PacBio HiFi inputs. Validation covers
 read QC, Myloasm assembly, depth mapping, QuickBin, QuickClade, all-bin quality
 and taxonomy evidence, SSU extraction, viral screening, routing, repeat masking,
@@ -102,7 +111,7 @@ environments with `pixi run --as-is`; runtime does not install software or
 update locks.
 
 One bounded Slurm allocation contains local Nextflow execution. The 17
-Nextflow tasks are not 17 Slurm jobs. The central path and version registry is
+Nextflow tasks of the accepted ONT case are not 17 Slurm jobs. The central path and version registry is
 `conf/databases.yaml`; the [input and dependency
 contract](docs/reference/inputs.md) describes its portability limits.
 
