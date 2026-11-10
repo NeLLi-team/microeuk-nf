@@ -14,10 +14,17 @@ that they name, not the upgraded pipeline.
 |---|---:|---|---|
 | MICRO, full mode | 27725402 | `e83ae52` | 21 completed tasks in 4 min 47 s; catalog, bundle, notebook, and HTML written |
 | ONT pilot `X0341_p01`, full mode | 27722802 | `0f217d0` | 21 completed tasks in 2 h 02 min; catalog and report audit below |
+| MICRO, `resume-reviewed` of job 27725402 | 27752569 | `f01bacd` | 11 cached and 10 completed tasks in 1 min 12 s |
 
 The pilot ran with `--ont-min-length 1000` and gene calling off. Commit `e83ae52`
 differs from `0f217d0` only in three CPU labels and the start order of the viral
-screen. No resume was tested for the upgraded pipeline.
+screen. Commit `f01bacd` differs from `e83ae52` only in the tidk threshold.
+
+The reviewed resume kept every task up to the merged bin screen and ran
+`ROUTE_BINS` and all later tasks again, including CheckM1, Symclatron, and
+GTDB-Tk. A source repair that needs a reviewed resume therefore repeats the
+routed-bin analyses. A plain `resume` with unchanged source was not tested for
+the upgraded pipeline.
 
 Local gates at `e83ae52`: 398 unit tests pass, the Python style gate passes,
 `generate_models.py --check` passes, `nextflow lint` reports no error, and
