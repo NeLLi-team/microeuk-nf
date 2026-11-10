@@ -120,14 +120,20 @@ workflow {
     )
 
     if (params.run_mode == 'full') {
-        // The call order is the submission order of the local executor: the independent
-        // assembly consumers start first, the longest bin screen leads the three screens.
+        // Mapping (20 CPUs), SSU (9) and Tiara (3) fill the 32 CPUs after assembly, so the
+        // local executor can never hold mapping back behind the side stages.
         SSU_EXTRACT(ASSEMBLE.out.result)
         CONTIG_CLASSIFY(ASSEMBLE.out.result)
-        VIRAL_SCREEN(ASSEMBLE.out.result)
         GVCLASS_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
         CHECKEUK_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
         CHECKM2_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
+        // The viral screen needs only the assembly. It waits for CheckEUK so that it cannot
+        // take the CPUs that mapping or GVClass need; it then uses the CPUs CheckEUK frees.
+        def viralInput = ASSEMBLE.out.result
+            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+            .join(CHECKEUK_SCREEN.out.result.map { meta, _dir, _report -> tuple(meta.sample_id, true) })
+            .map { _sampleId, meta, stageDir, _checkeukDone -> tuple(meta, stageDir) }
+        VIRAL_SCREEN(viralInput)
 
         def screenInput = MAP_DEPTH_QUICKBIN.out.result
             .map { meta, binningDir -> tuple(meta.sample_id, meta, binningDir) }

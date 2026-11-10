@@ -60,9 +60,9 @@ of each process.
 | `qc` | `CORE_PREFLIGHT`, `FULL_PREFLIGHT`, `ROUTE_BINS` | 4 | 16 GB | 2 h |
 | `read_qc` | `READ_QC` | 16 | 32 GB | 6 h, then 12 h on retry |
 | `assembly` | `ASSEMBLE` | 32 | 256 GB | 24 h |
-| `mapping` | `MAP_DEPTH_QUICKBIN` | 16 | 96 GB | 12 h |
-| `ssu` | `SSU_EXTRACT` | 8 | 48 GB | 48 h |
-| `contig` | `CONTIG_CLASSIFY` | 8 | 64 GB | 12 h |
+| `mapping` | `MAP_DEPTH_QUICKBIN` | 20 | 96 GB | 12 h |
+| `ssu` | `SSU_EXTRACT` | 9 | 48 GB | 48 h |
+| `contig` | `CONTIG_CLASSIFY` | 3 | 64 GB | 12 h |
 | `viral` | `VIRAL_SCREEN` | 12 | 96 GB | 24 h |
 | `gvclass` | `GVCLASS_SCREEN` | 20 | 96 GB | 48 h |
 | `checkeuk` | `CHECKEUK_SCREEN` | 12 | 96 GB | 48 h |
@@ -76,13 +76,16 @@ of each process.
 | `report` | `ALL_BIN_SCREEN`, `PROKARYOTE_CHARACTERIZATION`, and the four collection processes | 4 | 16 GB | 2 h |
 
 Independent stages overlap inside the 32-CPU allocation. After assembly,
-`MAP_DEPTH_QUICKBIN` (16 CPUs), `SSU_EXTRACT` (8), and `CONTIG_CLASSIFY` (8)
-together fill 32 CPUs, and `VIRAL_SCREEN` (12) and the bin screens start as CPUs
-free up. The three bin screens request 12, 8, and 20 CPUs, so they cannot all
-run at once. `main.nf` submits them in the order GVClass, CheckEUK, CheckM2.
-`ASSEMBLE` and `GTDBTK_CLASSIFY` each request all 32 CPUs and 256 GB, so each
-runs alone. The actual overlap depends on how long each task runs; read it from
-`timeline.html` and `trace.tsv` in the execution directory.
+`MAP_DEPTH_QUICKBIN` (20 CPUs), `SSU_EXTRACT` (9), and `CONTIG_CLASSIFY` (3)
+together fill 32 CPUs, so mapping always starts at once. `SSU_EXTRACT` needs
+9 CPUs to run its two model searches at the same time. The bin screens start
+after mapping: `GVCLASS_SCREEN` (20) and `CHECKEUK_SCREEN` (12) fill the
+allocation, and `CHECKM2_SCREEN` (8) runs when CPUs are free. `VIRAL_SCREEN`
+(12) needs only the assembly, but `main.nf` starts it after CheckEUK so that it
+cannot hold back mapping or GVClass. `ASSEMBLE` and `GTDBTK_CLASSIFY` each
+request all 32 CPUs and 256 GB, so each runs alone. The actual overlap depends
+on how long each task runs; read it from `timeline.html` and `trace.tsv` in the
+execution directory.
 
 Full mode completes the prokaryotic merge process before it starts optional
 gene calling for the same sample. The native outputs of CheckM1, GTDB-Tk, and
