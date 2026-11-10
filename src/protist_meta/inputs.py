@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import os
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Literal, Self
@@ -29,6 +30,7 @@ SAMPLE_COLUMNS = (
     "library_prep",
 )
 PATH_COLUMNS = ("reads", "assembly", "rna_reads", "protein_reference", "softmasked")
+REPEAT_MASKING_ENVIRONMENT = "repeatmasker"
 UNSAFE_PATH_CHARACTERS = frozenset("\r\n\0'\"`$")
 
 
@@ -90,6 +92,11 @@ class Dependency(BaseModel):
     mode: Literal["core", "full"]
     sentinels: list[str] = Field(default_factory=list)
     executables: dict[str, list[str]] = Field(default_factory=dict)
+    git_commit: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{40}$",
+        description="Commit the directory must be checked out at, with a clean tree.",
+    )
 
 
 class Registry(BaseModel):
@@ -124,20 +131,23 @@ def read_registry(
     path: Path,
     *,
     mode: str,
-    skip_gene_calling: bool = False,
+    skip_gene_calling: bool = True,
     skip_annotation: bool = False,
+    skip_repeat_masking: bool = True,
 ) -> tuple[Registry, dict[str, Path]]:
-    """Validate enabled local references without copying or downloading them."""
+    """Validate enabled local references without copying or downloading them.
+
+    Repeat masking needs the Dfam database and the RepeatModeler environment
+    only when gene calling is on and repeat masking is not skipped.
+    """
     path = path.resolve()
     registry = Registry.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
     resolved: dict[str, Path] = {}
-    excluded: set[str] = set()
-    if skip_gene_calling:
-        excluded.update(("gene_manifest", "braker_manifest", "dfam_db"))
-    if skip_gene_calling or skip_annotation:
-        excluded.update(
-            ("annotation_manifest", "interpro_manifest", "eggnog_db", "interproscan_db")
-        )
+    excluded, skipped_environments = _disabled_dependencies(
+        skip_gene_calling=skip_gene_calling,
+        skip_annotation=skip_annotation,
+        skip_repeat_masking=skip_repeat_masking,
+    )
     for name, dependency in registry.entries.items():
         if name in excluded or (mode == "core" and dependency.mode == "full"):
             continue
@@ -150,14 +160,59 @@ def read_registry(
             raise FileNotFoundError(f"required directory is missing: {target}")
         for sentinel in dependency.sentinels:
             _require_file(target / sentinel)
-        _check_executables(target, dependency)
+        _check_executables(target, dependency, skipped_environments.get(name))
+        if dependency.git_commit is not None:
+            _require_git_commit(name, target, dependency.git_commit)
         resolved[name] = target
     return registry, resolved
 
 
-def _check_executables(target: Path, dependency: Dependency) -> None:
+def _disabled_dependencies(
+    *, skip_gene_calling: bool, skip_annotation: bool, skip_repeat_masking: bool
+) -> tuple[set[str], dict[str, str]]:
+    """Return the entries to skip and, per entry, one environment to skip."""
+    excluded: set[str] = set()
+    skipped_environments: dict[str, str] = {}
+    if skip_gene_calling:
+        excluded.update(("gene_manifest", "braker_manifest", "dfam_db"))
+    elif skip_repeat_masking:
+        excluded.add("dfam_db")
+        skipped_environments["gene_manifest"] = REPEAT_MASKING_ENVIRONMENT
+    if skip_gene_calling or skip_annotation:
+        excluded.update(
+            ("annotation_manifest", "interpro_manifest", "eggnog_db", "interproscan_db")
+        )
+    return excluded, skipped_environments
+
+
+def _require_git_commit(name: str, target: Path, commit: str) -> None:
+    head = _git(target, "rev-parse", "HEAD")
+    if head != commit:
+        raise ValueError(f"{name} is at commit {head}, but the registry pins {commit}")
+    if _git(target, "status", "--porcelain"):
+        raise ValueError(f"{name} has uncommitted changes in {target}")
+
+
+def _git(directory: Path, *arguments: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(directory), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError(f"cannot read git state of {directory}: {error}") from error
+    return completed.stdout.strip()
+
+
+def _check_executables(
+    target: Path, dependency: Dependency, skipped_environment: str | None
+) -> None:
     root = target.parent if dependency.kind == "file" else target
     for environment, executables in dependency.executables.items():
+        if environment == skipped_environment:
+            continue
         for executable in executables:
             command = root / ".pixi/envs" / environment / "bin" / executable
             _require_file(command)
@@ -171,7 +226,7 @@ def prepare_inputs(  # noqa: PLR0913  # Explicit CLI choices avoid an options wr
     output_dir: Path,
     *,
     mode: str,
-    skip_gene_calling: bool = False,
+    skip_gene_calling: bool = True,
     skip_annotation: bool = False,
     skip_repeat_masking: bool = True,
 ) -> Path:
@@ -189,6 +244,7 @@ def prepare_inputs(  # noqa: PLR0913  # Explicit CLI choices avoid an options wr
         mode=mode,
         skip_gene_calling=skip_gene_calling,
         skip_annotation=skip_annotation,
+        skip_repeat_masking=skip_repeat_masking,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest = output_dir / "samples.tsv"
@@ -211,6 +267,9 @@ def prepare_inputs(  # noqa: PLR0913  # Explicit CLI choices avoid an options wr
         config_lines.extend(
             (f"params.{name} = '{path}'", f"params.{name}_version = '{version}'")
         )
+        commit = registry.entries[name].git_commit
+        if commit is not None:
+            config_lines.append(f"params.{name}_commit = '{commit}'")
     config = "\n".join(config_lines)
     project = Path(__file__).resolve().parents[2]
     with (project / "pyproject.toml").open("rb") as handle:
@@ -260,6 +319,13 @@ def _require_file(path: Path) -> None:
         raise FileNotFoundError(f"required nonempty file is missing: {path}")
 
 
+def _app_commit(target: Path) -> str:
+    try:
+        return _git(target, "rev-parse", "HEAD")
+    except ValueError:
+        return "MISSING"
+
+
 def _source_digest(root: Path) -> str:
     digest = hashlib.sha256()
     patterns = (
@@ -297,4 +363,7 @@ def _source_digest(root: Path) -> str:
         for path in (manifest, manifest.with_name("pixi.lock")):
             digest.update(f"registered/{name}/{path.name}".encode())
             digest.update(path.read_bytes() if path.is_file() else b"MISSING")
+        if name.endswith("_app"):
+            digest.update(f"registered/{name}/commit".encode())
+            digest.update(_app_commit(target).encode())
     return "sha256:" + digest.hexdigest()

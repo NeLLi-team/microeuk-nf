@@ -1,7 +1,7 @@
 process CORE_PREFLIGHT {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'qc'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     val meta
@@ -18,8 +18,11 @@ process CORE_PREFLIGHT {
     [[ -s "${params.bbtools_manifest}" ]]
     pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
         bash "${projectDir}/scripts/require-pixi-tools.sh" chopper seqkit myloasm minimap2 samtools pigz
-    pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
-        bash -c 'myloasm --help 2>&1 | awk '\''/--hifi/ {found=1} END {exit !found}'\'''
+    MYLOASM_HELP=\$(pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
+        myloasm --help 2>&1)
+    for FLAG in --hifi --clean-dir; do
+        grep -qF -e "\${FLAG}" <<< "\${MYLOASM_HELP}"
+    done
     pixi run --as-is --manifest-path "${params.bbtools_manifest}" --environment bbtools \
         bash "${projectDir}/scripts/require-pixi-tools.sh" quickbin.sh quickclade.sh bbversion.sh java
     cat > 00_preflight/stage.json <<JSON
@@ -44,9 +47,9 @@ JSON
 }
 
 process FULL_PREFLIGHT {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'qc'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     val meta
@@ -55,11 +58,12 @@ process FULL_PREFLIGHT {
     tuple val(meta), path('00_preflight'), emit: result
 
     script:
-    def outputs = params.skip_gene_calling
-        ? [report: 'stage.json']
-        : [report: 'stage.json', famdb_info: 'famdb-info.txt', famdb_exports: 'famdb-exports.tsv']
-    def databaseName = params.skip_gene_calling ? 'null' : '"Dfam"'
-    def databaseVersion = params.skip_gene_calling ? 'null' : groovy.json.JsonOutput.toJson(params.dfam_db_version)
+    def repeatMasking = !params.skip_gene_calling && !params.skip_repeat_masking
+    def outputs = repeatMasking
+        ? [report: 'stage.json', famdb_info: 'famdb-info.txt', famdb_exports: 'famdb-exports.tsv']
+        : [report: 'stage.json']
+    def databaseName = repeatMasking ? '"Dfam"' : 'null'
+    def databaseVersion = repeatMasking ? groovy.json.JsonOutput.toJson(params.dfam_db_version) : 'null'
     def outputsJson = groovy.json.JsonOutput.toJson(outputs)
     """
     mkdir -p 00_preflight
@@ -70,6 +74,8 @@ process FULL_PREFLIGHT {
     [[ -s "${params.checkm_manifest}" ]]
     [[ -s "${params.viral_manifest}" ]]
     [[ -s "${params.checkv_manifest}" ]]
+    [[ -s "${params.contig_manifest}" ]]
+    [[ -s "${params.eukqc_manifest}" ]]
     if [[ "${!params.skip_gene_calling}" == true ]]; then
         [[ -s "${params.gene_manifest}" ]]
         [[ -s "${params.braker_manifest}" ]]
@@ -81,17 +87,23 @@ process FULL_PREFLIGHT {
     [[ -s "${params.checkeuk_app}/pixi.toml" ]]
     [[ -s "${params.gvclass_app}/pixi.toml" ]]
     [[ -s "${params.ssuextract_app}/pixi.toml" ]]
+    for COMMIT in "${params.checkeuk_app_commit}" "${params.gvclass_app_commit}" "${params.ssuextract_app_commit}"; do
+        [[ "\${COMMIT}" =~ ^[0-9a-f]{40}\$ ]]
+    done
     [[ -s "${params.quickclade_ref}" ]]
     [[ -s "${params.checkm1_db}/hmms/checkm.hmm" ]]
     [[ -s "${params.checkm2_db}" ]]
     [[ -s "${params.gtdbtk_db}/metadata/metadata.txt" ]]
     [[ -d "${params.genomad_db}" ]]
     [[ -d "${params.checkv_db}" ]]
+    [[ -s "${params.busco_db}/dataset.cfg" ]]
+    [[ "\$(tr -d '[:space:]' < "${params.checkeuk_db}/DB_VERSION")" == "${params.checkeuk_db_version}" ]]
+    [[ "\$(tr -d '[:space:]' < "${params.gvclass_db}/DB_VERSION")" == "${params.gvclass_db_version}" ]]
     if [[ "${!params.skip_gene_calling && !params.skip_annotation}" == true ]]; then
         [[ -d "${params.eggnog_db}" ]]
         [[ -d "${params.interproscan_db}" ]]
     fi
-    if [[ "${!params.skip_gene_calling}" == true ]]; then
+    if [[ "${repeatMasking}" == true ]]; then
         [[ -d "${params.dfam_db}" ]]
         [[ -s "${params.dfam_db}/dfam40.0.h5" ]]
         [[ -s "${params.dfam_db}/dfam40.curated.consensus.0.h5" ]]
@@ -111,13 +123,22 @@ process FULL_PREFLIGHT {
 
     pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
         bash "${projectDir}/scripts/require-pixi-tools.sh" chopper seqkit myloasm minimap2 samtools pigz
-    pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
-        bash -c 'myloasm --help 2>&1 | awk '\''/--hifi/ {found=1} END {exit !found}'\'''
+    MYLOASM_HELP=\$(pixi run --as-is --manifest-path "${params.core_manifest}" --environment core \
+        myloasm --help 2>&1)
+    for FLAG in --hifi --clean-dir; do
+        grep -qF -e "\${FLAG}" <<< "\${MYLOASM_HELP}"
+    done
     pixi run --as-is --manifest-path "${params.bbtools_manifest}" --environment bbtools \
         bash "${projectDir}/scripts/require-pixi-tools.sh" quickbin.sh quickclade.sh bbversion.sh java
+    pixi run --as-is --quiet --manifest-path "${params.checkm_manifest}" --environment symclatron \
+        python -c 'import importlib.util, pathlib, sys; data = pathlib.Path(importlib.util.find_spec("symclatron").origin).parent / "data"; missing = [name for name in ("uni56.hmm", "symclatron_2384_union_features.hmm") if not (data / name).is_file() or (data / name).stat().st_size == 0]; sys.exit(f"Symclatron data missing or empty in {data}: {missing}; run symclatron setup") if missing else None'
     if [[ "${!params.skip_gene_calling}" == true ]]; then
         pixi run --as-is --manifest-path "${params.braker_manifest}" \
             braker3-longrna-preflight
+        pixi run --as-is --manifest-path "${params.gene_manifest}" --environment prodigal-gv \
+            bash "${projectDir}/scripts/require-pixi-tools.sh" prodigal-gv
+    fi
+    if [[ "${repeatMasking}" == true ]]; then
         pixi run --as-is --quiet --manifest-path "${params.gene_manifest}" \
             --environment repeatmasker bash "${projectDir}/scripts/require-pixi-tools.sh" \
             BuildDatabase RepeatModeler RepeatClassifier RepeatMasker famdb.py
@@ -152,8 +173,6 @@ process FULL_PREFLIGHT {
         printf 'export\trecords\nrepeat_peps\t%s\nfasta_all\t%s\n' \
             "\${REPEAT_PEPTIDES}" "\${CURATED_CONSENSUS}" \
             > 00_preflight/famdb-exports.tsv
-        pixi run --as-is --manifest-path "${params.gene_manifest}" --environment prodigal-gv \
-            bash "${projectDir}/scripts/require-pixi-tools.sh" prodigal-gv
     fi
     if [[ "${!params.skip_gene_calling && !params.skip_annotation}" == true ]]; then
         pixi run --as-is --manifest-path "${params.annotation_manifest}" --environment eggnog \

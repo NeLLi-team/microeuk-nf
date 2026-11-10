@@ -794,3 +794,160 @@ def test_checkeuk_detail_requires_exact_target_coverage(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="summary and detail target sets differ"):
         parse_quality("checkeuk", summary, detail)
+
+
+BUSCO_FIELDS = (
+    "Input_file",
+    "Dataset",
+    "Complete",
+    "Single",
+    "Duplicated",
+    "Fragmented",
+    "Missing",
+    "n_markers",
+    "Scaffold N50",
+)
+
+
+def _busco_row(**changes: str) -> dict[str, str]:
+    return {
+        "Input_file": "bin_1.fna",
+        "Dataset": "eukaryota_odb12",
+        "Complete": "91.0",
+        "Single": "89.0",
+        "Duplicated": "2.0",
+        "Fragmented": "3.0",
+        "Missing": "6.0",
+        "n_markers": "129",
+        "Scaffold N50": "1000",
+        **changes,
+    }
+
+
+def test_busco_maps_complete_and_duplicated_onto_the_qc_columns(
+    tmp_path: Path,
+) -> None:
+    """Unused columns such as Single and Scaffold N50 are tolerated."""
+    report = _write_tsv(tmp_path / "batch_summary.txt", BUSCO_FIELDS, [_busco_row()])
+
+    parsed = parse_quality("busco", report)
+
+    assert parsed.target_ids == ("bin_1",)
+    assert parsed.qc == [
+        {
+            "record_id": "busco:qc:bin_1",
+            "target_kind": "bin",
+            "target_id": "bin_1",
+            "completeness_percent": 91.0,
+            "completeness_basis": "BUSCO eukaryota_odb12 complete (n=129)",
+            "contamination_percent": 2.0,
+            "contamination_basis": "BUSCO duplicated (not a contamination estimate)",
+        }
+    ]
+    assert parsed.taxonomy == []
+    assert "bin_1: BUSCO fragmented 3.0%, missing 6.0%" in parsed.evidence_gaps
+
+
+@pytest.mark.parametrize("column", ["Complete", "Duplicated", "Fragmented", "Missing"])
+def test_busco_rejects_a_percentage_above_100(tmp_path: Path, column: str) -> None:
+    report = _write_tsv(
+        tmp_path / "batch_summary.txt", BUSCO_FIELDS, [_busco_row(**{column: "100.5"})]
+    )
+
+    with pytest.raises(ValueError, match=f"{column} exceeds 100"):
+        parse_quality("busco", report)
+
+
+BUSCO_EMPTY_METRICS = {
+    "Complete": "",
+    "Single": "",
+    "Duplicated": "",
+    "Fragmented": "",
+    "Missing": "",
+    "n_markers": "",
+    "Scaffold N50": "",
+}
+
+
+def _busco_failure_row(input_file: str, dataset: str) -> dict[str, str]:
+    return _busco_row(Input_file=input_file, Dataset=dataset, **BUSCO_EMPTY_METRICS)
+
+
+@pytest.mark.parametrize("dataset", ["No genes found", "Run failed; check logs"])
+def test_busco_failure_row_is_observed_without_a_qc_row(
+    tmp_path: Path, dataset: str
+) -> None:
+    report = _write_tsv(
+        tmp_path / "batch_summary.txt",
+        BUSCO_FIELDS,
+        [_busco_row(), _busco_failure_row("bin_2.fna", dataset)],
+    )
+
+    parsed = parse_quality("busco", report)
+
+    assert parsed.target_ids == ("bin_1", "bin_2")
+    assert [row["target_id"] for row in parsed.qc] == ["bin_1"]
+    assert f"bin_2: BUSCO {dataset}" in parsed.evidence_gaps
+    assert "bin_1: BUSCO fragmented 3.0%, missing 6.0%" in parsed.evidence_gaps
+
+
+def test_busco_table_of_only_failure_rows_has_no_qc_rows(tmp_path: Path) -> None:
+    report = _write_tsv(
+        tmp_path / "batch_summary.txt",
+        BUSCO_FIELDS,
+        [
+            _busco_failure_row("bin_1.fna", "No genes found"),
+            _busco_failure_row("bin_2.fna", "Run failed; check logs"),
+        ],
+    )
+
+    parsed = parse_quality("busco", report)
+
+    assert parsed.qc == []
+    assert parsed.target_ids == ("bin_1", "bin_2")
+
+
+def test_busco_rejects_a_normal_row_with_an_empty_metric(tmp_path: Path) -> None:
+    report = _write_tsv(
+        tmp_path / "batch_summary.txt", BUSCO_FIELDS, [_busco_row(Complete="")]
+    )
+
+    with pytest.raises(ValueError, match="Complete is missing"):
+        parse_quality("busco", report)
+
+
+def test_busco_rejects_a_failure_row_with_a_metric_value(tmp_path: Path) -> None:
+    report = _write_tsv(
+        tmp_path / "batch_summary.txt",
+        BUSCO_FIELDS,
+        [_busco_failure_row("bin_1.fna", "No genes found") | {"Complete": "5.0"}],
+    )
+
+    with pytest.raises(ValueError, match="BUSCO failure row for bin_1"):
+        parse_quality("busco", report)
+
+
+@pytest.mark.parametrize("prefix", ["#", "# "])
+def test_busco_accepts_a_hash_on_the_header_line(tmp_path: Path, prefix: str) -> None:
+    report = tmp_path / "batch_summary.txt"
+    report.write_text(
+        prefix
+        + "\t".join(BUSCO_FIELDS)
+        + "\n"
+        + "\t".join(_busco_row().values())
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert parse_quality("busco", report).target_ids == ("bin_1",)
+
+
+def test_busco_names_the_missing_column(tmp_path: Path) -> None:
+    report = _write_tsv(
+        tmp_path / "batch_summary.txt",
+        tuple(field for field in BUSCO_FIELDS if field != "Missing"),
+        [{key: value for key, value in _busco_row().items() if key != "Missing"}],
+    )
+
+    with pytest.raises(ValueError, match=r"missing required columns \['Missing'\]"):
+        parse_quality("busco", report)

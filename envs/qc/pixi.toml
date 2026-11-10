@@ -1,0 +1,26 @@
+[workspace]
+name = "protist-prokaryote-qc"
+channels = ["conda-forge", "bioconda", "https://repo.prefix.dev/astrogenomics"]
+platforms = ["linux-64"]
+
+[feature.checkm1.dependencies]
+checkm-genome = "==1.2.10"
+python = "3.11.*"
+setuptools = "<81"
+
+[feature.checkm2.dependencies]
+checkm2 = "==1.1.0"
+python = "3.12.*"
+
+[feature.gtdbtk.dependencies]
+gtdbtk = "==2.8.0"
+
+[feature.symclatron.dependencies]
+python = "3.12.*"
+symclatron = "==0.10.12"
+
+[environments]
+checkm1 = { features = ["checkm1"], no-default-feature = true }
+checkm2 = { features = ["checkm2"], no-default-feature = true }
+gtdbtk = { features = ["gtdbtk"], no-default-feature = true }
+symclatron = { features = ["symclatron"], no-default-feature = true }

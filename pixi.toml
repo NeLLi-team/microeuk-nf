@@ -24,7 +24,7 @@ ruff = "==0.16.6"
 mkdocs = "==1.6.1"
 mkdocs-material = "==9.6.20"
 mkdocs-jupyter = "==0.25.1"
-nextflow = "==25.10.2"
+nextflow = "==26.10.5"
 openjdk = "21.*"
 bash = "5.*"
 coreutils = "9.*"
@@ -40,12 +40,12 @@ protist-meta = { path = ".", editable = true }
 
 [feature.core.dependencies]
 python = "3.12.*"
-chopper = "==0.13.0"
-seqkit = "==2.13.0"
+chopper = "==0.15.0"
+seqkit = "==2.14.0"
 pigz = "==2.8"
-myloasm = "==0.6.0"
+myloasm = "==0.7.0"
 minimap2 = "==2.31"
-samtools = "==1.24"
+samtools = "==1.25"
 
 [environments]
 core = { features = ["core"], no-default-feature = true }

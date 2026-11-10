@@ -15,7 +15,7 @@ entries:
   bbtools_manifest:
     path: ../envs/bbtools/pixi.toml
     kind: file
-    version: '40.02'
+    version: '40.05'
     mode: core
     executables:
       bbtools: [quickbin.sh, quickclade.sh, bbversion.sh, java]
@@ -25,29 +25,44 @@ entries:
     version: RefSeqA48_with_ribo
     mode: core
   checkm_manifest:
-    path: ../../09enrichments-ont/pixi.toml
+    path: ../envs/qc/pixi.toml
     kind: file
-    version: adjacent-pixi.lock
+    version: pixi.lock
     mode: full
     executables:
       checkm1: [checkm, python]
       checkm2: [checkm2, python]
-      gtdbtk232: [gtdbtk, python]
+      gtdbtk: [gtdbtk, python]
       symclatron: [symclatron, python]
   viral_manifest:
-    path: ../../08protist-ont/pixi.toml
+    path: ../envs/viral/pixi.toml
     kind: file
-    version: adjacent-pixi.lock
+    version: pixi.lock
     mode: full
     executables:
-      default: [genomad, python]
+      genomad: [genomad, python]
   checkv_manifest:
-    path: ../../../09pagd/opdetect-nf/pixi.toml
+    path: ../envs/viral/pixi.toml
     kind: file
-    version: adjacent-pixi.lock
+    version: pixi.lock
     mode: full
     executables:
-      default: [checkv, python]
+      checkv: [checkv, python]
+  contig_manifest:
+    path: ../envs/contig/pixi.toml
+    kind: file
+    version: pixi.lock
+    mode: full
+    executables:
+      tiara: [tiara, python]
+  eukqc_manifest:
+    path: ../envs/eukqc/pixi.toml
+    kind: file
+    version: pixi.lock
+    mode: full
+    executables:
+      busco: [busco, python]
+      tidk: [tidk]
   annotation_manifest:
     path: ../envs/annotation/pixi.toml
     kind: file
@@ -63,37 +78,40 @@ entries:
     executables:
       default: [interproscan.sh, interproscan-current-preflight, java, python3, perl]
   checkeuk_app:
-    path: ../../../apps/CheckEUK
+    path: ../../protist-meta-runtimes/checkeuk-0.13.0-86ab78a
     kind: directory
-    version: 0.12.0-4a759ab2a1998d5af37f73a8004a50180dd48b49
+    version: 0.13.0
+    git_commit: 86ab78adab6b93031ef092a2dc47bcdd86243825
     mode: full
     sentinels: [pixi.toml, pixi.lock, bin/checkeuk]
     executables:
       default: [python, checkeuk, hmmsearch, mmseqs, mafft, seqkit, prodigal]
   checkeuk_db:
-    path: ../../../apps/CheckEUK/checkeuk-resources
+    path: ../../../apps/CheckEUK-dev/resources/checkeuk-resources-v1.0.8
     kind: directory
-    version: v1.0.6
+    version: v1.0.8
     mode: full
     sentinels: [DB_VERSION]
   gvclass_app:
-    path: ../../../apps/gvclass
+    path: ../../protist-meta-runtimes/gvclass-2.1.1-1517cc0
     kind: directory
-    version: 2.1.0-d96e2ba58e0788c6d75d3fca9e1dae956fba9ada
+    version: 2.1.1
+    git_commit: 1517cc057a484cace264e5853a94b0038b4d32b3
     mode: full
     sentinels: [pixi.toml, pixi.lock, gvclass]
     executables:
       default: [python, iqtree3, diamond]
   gvclass_db:
-    path: ../../../apps/gvclass/resources
+    path: ../../protist-meta-runtimes/resources/gvclass_resources_v2.1.0
     kind: directory
-    version: v2.0.0
+    version: v2.1.0
     mode: full
     sentinels: [DB_VERSION]
   ssuextract_app:
-    path: ../../../apps/ssuextract
+    path: ../../protist-meta-runtimes/ssuextract-1.2.2-4dcf85d
     kind: directory
-    version: 1.2.2-4dcf85d3796ef4ade3881594ad828428557d43f2
+    version: 1.2.2
+    git_commit: 4dcf85d3796ef4ade3881594ad828428557d43f2
     mode: full
     sentinels:
       [pixi.toml, pixi.lock, main.nf, nextflow.config, config/base.config,
@@ -107,11 +125,17 @@ entries:
     mode: full
     sentinels: [curated/manifest.json, curated/provenance.json]
   ssuextract_models:
-    path: ../../../apps/ssuextract/resources/models
+    path: ../../protist-meta-runtimes/ssuextract-1.2.2-4dcf85d/resources/models
     kind: directory
     version: source-commit-4dcf85d
     mode: full
     sentinels: [RF00177.cm, RF01960.cm]
+  busco_db:
+    path: ../../../../../databases/busco/lineages/eukaryota_odb12.2
+    kind: directory
+    version: eukaryota_odb12.2
+    mode: full
+    sentinels: [dataset.cfg]
   checkm1_db:
     path: ../../../../../databases/checkm
     kind: directory

@@ -1,0 +1,10 @@
+[workspace]
+name = "protist-contig-classification"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[feature.tiara.dependencies]
+tiara = "==1.0.3"
+
+[environments]
+tiara = { features = ["tiara"], no-default-feature = true }

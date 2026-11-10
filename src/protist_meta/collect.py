@@ -55,18 +55,23 @@ FULL_STAGES = (
     "checkm1",
     "gvclass",
     "gtdbtk",
-    "ssuextract",
+    "ssu",
     "genomad",
     "checkv",
     "symclatron",
+    "tiara",
     "routing",
+    "busco",
+    "tidk",
     "repeat_masking",
     "rna_alignment",
     "prodigal_gv",
     "braker3",
+    "functional_annotation",
     "eggnog_mapper",
     "interproscan",
 )
+EUKARYOTIC_QC_STAGES = {"busco", "tidk"}
 GENE_STAGES = {"repeat_masking", "rna_alignment", "prodigal_gv", "braker3"}
 ANNOTATION_STAGES = {"functional_annotation", "eggnog_mapper", "interproscan"}
 PATH_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -104,6 +109,7 @@ class ToolManifest(BaseModel):
     database_name: str | None = None
     database_version: str | None = None
     reason: str | None = None
+    command_file: str | None = None
 
 
 class StageManifest(BaseModel):
@@ -122,6 +128,7 @@ class StageManifest(BaseModel):
     outputs: dict[str, str] = Field(default_factory=dict)
     tools: dict[str, ToolManifest] = Field(default_factory=dict)
     reason: str | None = None
+    command_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +166,7 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
             records["runs"][0][name] = sample[name]
     raw_id = _artifact(context, Path(sample["reads"]), "raw_reads", "dna_reads", None)
     _collect_external_evidence(context, sample)
-    for directory in sorted(stages):
+    for directory in _collection_order(stages):
         _collect_stage(context, directory, raw_id, disabled)
     present = {row["stage_id"] for row in records["stages"]}
     if sample.get("run_mode") == "core":
@@ -177,7 +184,7 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
         _record_unrequested(
             context,
             disabled | children,
-            "Gene calling disabled by user (--skip-gene-calling).",
+            "Gene calling not requested (skip_gene_calling=true).",
         )
     elif sample.get("skip_annotation"):
         _record_unrequested(
@@ -204,6 +211,16 @@ def collect_records(sample_path: Path, stages: list[Path], output: Path) -> Path
     }
     output.write_text(json.dumps(bundle, indent=2) + "\n", encoding="utf-8")
     return output
+
+
+def _collection_order(directories: list[Path]) -> list[Path]:
+    """Sort stage directories by name, with Tiara first because routing lists it."""
+
+    def key(directory: Path) -> tuple[bool, Path]:
+        manifest = json.loads((directory / "stage.json").read_text(encoding="utf-8"))
+        return manifest.get("stage") != "tiara", directory
+
+    return sorted(directories, key=key)
 
 
 def _disabled_stages(sample: Row) -> set[str]:
@@ -276,6 +293,7 @@ def _collect_stage(
             command=manifest.command,
             outputs={**manifest.outputs, "result": tool.output},
             reason=reason,
+            command_file=tool.command_file,
         )
         _collect_manifest(context, directory, child, raw_id)
         if (
@@ -334,8 +352,16 @@ def _collect_manifest(
 
 
 def _command(directory: Path, manifest: StageManifest) -> str:
-    """Return the producer script when Nextflow provenance is available."""
+    """Return the producer script when Nextflow provenance is available.
+
+    A tool that saved its own script in the stage directory uses that script, and
+    it must exist once the tool completed.
+    """
     script = directory.resolve().parent / ".command.sh"
+    if manifest.command_file is not None:
+        script = _relative_path(directory, manifest.command_file)
+        if manifest.status == "completed" and not script.is_file():
+            raise FileNotFoundError(f"missing saved producer command: {script}")
     if script.is_file():
         command = script.read_text(encoding="utf-8").strip()
         if not command:
@@ -363,6 +389,9 @@ def _collect_completed_stage(
         "gvclass": _collect_quality,
         "gtdbtk": _collect_quality,
         "symclatron": _collect_quality,
+        "busco": _collect_quality,
+        "tidk": _collect_tidk,
+        "tiara": _collect_tiara,
         "routing": _collect_routing_manifest,
         "repeat_masking": _collect_repeat_masking,
         "rna_alignment": _collect_rna_alignment,
@@ -392,6 +421,28 @@ def _collect_no_results(
     _manifest: StageManifest,
 ) -> None:
     """Accept a completed stage with provenance artifacts but no result rows."""
+
+
+def _collect_tiara(
+    context: CollectionContext,
+    directory: Path,
+    manifest: StageManifest,
+) -> None:
+    """Record Tiara's classification table and log without result rows."""
+    _collect_artifact_outputs(
+        context, directory, manifest, {"classification": "taxonomy_report"}
+    )
+
+
+def _collect_tidk(
+    context: CollectionContext,
+    directory: Path,
+    manifest: StageManifest,
+) -> None:
+    """Record the telomere summary and every per-bin explore table."""
+    summary = directory / manifest.outputs["result"]
+    for path in (summary, *sorted(summary.parent.glob("*.explore.tsv"))):
+        _artifact(context, path, f"tidk.{path.name}", "qc_report", manifest.stage)
 
 
 def _collect_preflight(
@@ -655,10 +706,15 @@ def _append_sequences(
 
 def _quality_bins(context: CollectionContext, stage: str) -> set[str]:
     all_bins = stage in {"checkeuk", "checkm2", "gvclass"}
+    scored_class = (
+        "eukaryotic_candidate"
+        if stage in EUKARYOTIC_QC_STAGES
+        else "bacterial_archaeal_candidate"
+    )
     return {
         str(row["bin_id"])
         for row in context.records["bins"]
-        if all_bins or row["candidate_class"] == "bacterial_archaeal_candidate"
+        if all_bins or row["candidate_class"] == scored_class
     }
 
 
@@ -1251,6 +1307,8 @@ def _stage_inputs(context: CollectionContext, stage: str, raw_id: str) -> list[s
         "gvclass": _quality_inputs,
         "gtdbtk": _quality_inputs,
         "symclatron": _quality_inputs,
+        "busco": _quality_inputs,
+        "tidk": _quality_inputs,
         "routing": _routing_inputs,
         "repeat_masking": _repeat_masking_inputs,
         "rna_alignment": _rna_alignment_inputs,
@@ -1269,6 +1327,7 @@ def _stage_inputs(context: CollectionContext, stage: str, raw_id: str) -> list[s
         "binning": ["filtered_reads", "assembly"],
         "ssu": ["assembly"],
         "genomad": ["assembly"],
+        "tiara": ["assembly"],
     }.get(stage, [])
 
 
@@ -1290,6 +1349,7 @@ def _routing_inputs(context: CollectionContext, _stage: str) -> list[str]:
         lambda row: (
             row["kind"]
             in {"bin_fasta", "taxonomy_report", "ssu_report", "viral_report"}
+            or row["artifact_id"] == "checkm2.quality_report.qc"
         ),
     )
 

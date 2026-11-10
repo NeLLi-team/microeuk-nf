@@ -11,11 +11,14 @@ import yaml
 
 from protist_meta.cli import main
 from protist_meta.inputs import (
+    Registry,
     _source_digest,
     prepare_inputs,
     read_registry,
     read_samples,
 )
+
+REGISTRY = Path(__file__).parents[1] / "conf/databases.yaml"
 
 
 def test_source_digest_changes_when_python_runtime_helper_changes(tmp_path):
@@ -223,12 +226,15 @@ def test_registry_skips_only_disabled_stage_dependencies(
 @pytest.mark.parametrize(
     ("flags", "skip_gene_calling", "skip_annotation", "skip_repeat_masking"),
     [
-        ((), False, False, True),
+        ((), True, False, True),
         (("--skip-gene-calling",), True, False, True),
-        (("--skip-annotation",), False, True, True),
+        (("--enable-gene-calling",), False, False, True),
+        (("--skip-annotation",), True, True, True),
+        (("--enable-gene-calling", "--skip-annotation"), False, True, True),
         (("--skip-gene-calling", "--skip-annotation"), True, True, True),
-        (("--enable-repeat-masking",), False, False, False),
-        (("--skip-repeat-masking",), False, False, True),
+        (("--enable-repeat-masking",), True, False, False),
+        (("--enable-gene-calling", "--enable-repeat-masking"), False, False, False),
+        (("--skip-repeat-masking",), True, False, True),
     ],
 )
 def test_prepare_records_requested_stage_choices(
@@ -239,7 +245,7 @@ def test_prepare_records_requested_stage_choices(
     skip_annotation: bool,
     skip_repeat_masking: bool,
 ) -> None:
-    """Preparation records requested flags, including the enabled legacy defaults."""
+    """Preparation records requested flags; gene calling is off unless enabled."""
     (tmp_path / "reads.fq").write_text("@r\nACGT\n+\nIIII\n", encoding="utf-8")
     sheet = tmp_path / "samples.tsv"
     sheet.write_text(
@@ -286,6 +292,25 @@ def test_prepare_records_requested_stage_choices(
     )
 
 
+def test_prepare_rejects_conflicting_gene_calling_options(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "prepare",
+                "--input",
+                str(tmp_path / "samples.tsv"),
+                "--registry",
+                str(tmp_path / "db.yaml"),
+                "--output-dir",
+                str(tmp_path / "prepared"),
+                "--enable-gene-calling",
+                "--skip-gene-calling",
+            ]
+        )
+
+    assert error.value.code == 2
+
+
 @pytest.mark.parametrize(
     ("mode", "skip_genes"),
     [("full", False), ("core", False), ("full", True)],
@@ -306,7 +331,13 @@ def test_softmasked_input_requires_repeat_masking(
 
     if mode == "full" and not skip_genes:
         with pytest.raises(ValueError, match=r"softmasked.*enable-repeat-masking"):
-            prepare_inputs(sheet, registry, tmp_path / "disabled", mode=mode)
+            prepare_inputs(
+                sheet,
+                registry,
+                tmp_path / "disabled",
+                mode=mode,
+                skip_gene_calling=False,
+            )
     else:
         assert prepare_inputs(
             sheet,
@@ -320,8 +351,28 @@ def test_softmasked_input_requires_repeat_masking(
         registry,
         tmp_path / "enabled",
         mode="full",
+        skip_gene_calling=False,
         skip_repeat_masking=False,
     )
+    assert manifest.is_file()
+
+
+def test_prepare_accepts_softmasked_input_while_gene_calling_is_off_by_default(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "reads.fq").write_text("@r\nACGT\n+\nIIII\n", encoding="utf-8")
+    (tmp_path / "masked.fa").write_text(">c\nACgt\n", encoding="utf-8")
+    sheet = tmp_path / "samples.tsv"
+    sheet.write_text(
+        "sample_id\tplatform\treads\tassembly\tsoftmasked\n"
+        "S1\tONT\treads.fq\tmasked.fa\tmasked.fa\n",
+        encoding="utf-8",
+    )
+    registry = tmp_path / "db.yaml"
+    registry.write_text("schema_version: 1.0.0\nentries: {}\n", encoding="utf-8")
+
+    manifest = prepare_inputs(sheet, registry, tmp_path / "prepared", mode="full")
+
     assert manifest.is_file()
 
 
@@ -394,6 +445,7 @@ def test_launcher_preserves_saved_repeat_choice_unless_reviewed_disable(
             mode,
             requested,
             option,
+            "",
         ],
         input=validator,
         text=True,
@@ -408,6 +460,79 @@ def test_launcher_preserves_saved_repeat_choice_unless_reviewed_disable(
     else:
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize(
+    ("saved_skip", "requested", "option", "message"),
+    [
+        (False, "true", "", "required nonempty file is missing"),
+        (True, "true", "", None),
+        (True, "true", "--skip-gene-calling", None),
+        (False, "false", "--enable-gene-calling", "required nonempty file is missing"),
+        (False, "true", "--skip-gene-calling", "Resume stage choices differ"),
+        (True, "false", "--enable-gene-calling", "Resume stage choices differ"),
+    ],
+    ids=[
+        "adopts-enabled",
+        "adopts-skipped",
+        "repeats-skipped",
+        "repeats-enabled",
+        "explicit-skip-differs",
+        "explicit-enable-differs",
+    ],
+)
+def test_launcher_adopts_the_saved_gene_calling_choice_unless_explicit(
+    tmp_path: Path,
+    saved_skip: bool,
+    requested: str,
+    option: str,
+    message: str | None,
+) -> None:
+    """Resume keeps a run's gene-calling choice after the default flipped to off.
+
+    The registry lists an absent gene manifest, so only a validator that treats
+    gene calling as enabled can notice it.
+    """
+    script = (Path(__file__).parents[1] / "scripts/run-allocation.slurm").read_text(
+        encoding="utf-8"
+    )
+    validator = script.split("<<'PYTHON'\n")[1].split("\nPYTHON", 1)[0]
+    registry = tmp_path / "db.yaml"
+    registry.write_text(
+        "schema_version: 1.0.0\nentries:\n  gene_manifest:\n"
+        "    path: missing.toml\n    kind: file\n"
+        "    version: fixture\n    mode: full\n",
+        encoding="utf-8",
+    )
+    inputs = tmp_path / "inputs.json"
+    saved = {"skip_gene_calling": saved_skip, "skip_repeat_masking": True}
+    inputs.write_text(json.dumps({**saved, "samples": []}), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            str(registry),
+            "full",
+            requested,
+            "false",
+            str(inputs),
+            "resume",
+            "true",
+            "",
+            option,
+        ],
+        input=validator,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    if message is None:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert message in result.stderr
 
 
 def test_reviewed_receipt_records_repeat_override_without_rewriting_preparation(
@@ -504,3 +629,245 @@ def test_registry_checks_tools_inside_each_pixi_workspace(tmp_path, kind):
 
     with pytest.raises(ValueError, match="not executable"):
         read_registry(registry, mode="core")
+
+
+def _gene_registry(tmp_path: Path) -> Path:
+    """A gene workspace that lacks the RepeatMasker environment and Dfam."""
+    commands = tmp_path / "gene/.pixi/envs/prodigal-gv/bin"
+    commands.mkdir(parents=True)
+    command = commands / "prodigal-gv"
+    command.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    command.chmod(0o755)
+    (tmp_path / "gene/pixi.toml").write_text("# fixture manifest\n", encoding="utf-8")
+    registry = tmp_path / "db.yaml"
+    registry.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": "1.0.0",
+                "entries": {
+                    "gene_manifest": {
+                        "path": "gene/pixi.toml",
+                        "kind": "file",
+                        "version": "fixture",
+                        "mode": "full",
+                        "executables": {
+                            "repeatmasker": ["RepeatMasker"],
+                            "prodigal-gv": ["prodigal-gv"],
+                        },
+                    },
+                    "dfam_db": {
+                        "path": "dfam",
+                        "kind": "directory",
+                        "version": "fixture",
+                        "mode": "full",
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return registry
+
+
+def test_registry_skips_repeat_masking_dependencies_when_masking_is_off(
+    tmp_path: Path,
+) -> None:
+    """Gene calling without repeat masking needs neither Dfam nor RepeatMasker."""
+    registry = _gene_registry(tmp_path)
+
+    _, resolved = read_registry(
+        registry, mode="full", skip_gene_calling=False, skip_repeat_masking=True
+    )
+
+    assert set(resolved) == {"gene_manifest"}
+
+
+def test_registry_requires_repeat_masking_dependencies_when_masking_is_on(
+    tmp_path: Path,
+) -> None:
+    registry = _gene_registry(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match=r"dfam|RepeatMasker"):
+        read_registry(
+            registry, mode="full", skip_gene_calling=False, skip_repeat_masking=False
+        )
+
+
+def test_registry_ignores_repeat_masking_dependencies_by_default(
+    tmp_path: Path,
+) -> None:
+    registry = _gene_registry(tmp_path)
+
+    _, resolved = read_registry(registry, mode="full")
+
+    assert resolved == {}
+
+
+def _git(directory: Path, *arguments: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(directory),
+            "-c",
+            "user.name=fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            *arguments,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _git_app(tmp_path: Path) -> tuple[Path, str]:
+    """Create a one-commit application clone and return it with its commit."""
+    app = tmp_path / "app"
+    app.mkdir()
+    (app / "pixi.toml").write_text("# fixture manifest\n", encoding="utf-8")
+    _git(app, "init", "-q")
+    _git(app, "add", "pixi.toml")
+    _git(app, "commit", "-q", "-m", "fixture")
+    return app, _git(app, "rev-parse", "HEAD")
+
+
+def _app_registry(tmp_path: Path, app: Path, commit: str) -> Path:
+    registry = tmp_path / "db.yaml"
+    registry.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": "1.0.0",
+                "entries": {
+                    "fixture_app": {
+                        "path": str(app),
+                        "kind": "directory",
+                        "version": "1.0",
+                        "mode": "full",
+                        "git_commit": commit,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return registry
+
+
+def test_registry_accepts_an_app_at_its_pinned_clean_commit(tmp_path: Path) -> None:
+    app, commit = _git_app(tmp_path)
+
+    _, resolved = read_registry(_app_registry(tmp_path, app, commit), mode="full")
+
+    assert resolved == {"fixture_app": app}
+
+
+def test_registry_rejects_an_app_at_another_commit(tmp_path: Path) -> None:
+    app, commit = _git_app(tmp_path)
+    (app / "extra.txt").write_text("more\n", encoding="utf-8")
+    _git(app, "add", "extra.txt")
+    _git(app, "commit", "-q", "-m", "moved")
+
+    with pytest.raises(ValueError, match=f"fixture_app is at commit .*pins {commit}"):
+        read_registry(_app_registry(tmp_path, app, commit), mode="full")
+
+
+@pytest.mark.parametrize("change", ["pixi.toml", "untracked.txt"])
+def test_registry_rejects_an_app_with_uncommitted_changes(
+    tmp_path: Path, change: str
+) -> None:
+    app, commit = _git_app(tmp_path)
+    (app / change).write_text("changed\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fixture_app has uncommitted changes"):
+        read_registry(_app_registry(tmp_path, app, commit), mode="full")
+
+
+@pytest.mark.parametrize("commit", ["86ab78a", "G" * 40, "$(id)"])
+def test_registry_rejects_a_malformed_git_commit(tmp_path: Path, commit: str) -> None:
+    app, _ = _git_app(tmp_path)
+
+    with pytest.raises(ValueError, match="git_commit"):
+        read_registry(_app_registry(tmp_path, app, commit), mode="full")
+
+
+def test_registry_rejects_a_pinned_directory_that_is_not_a_clone(
+    tmp_path: Path,
+) -> None:
+    app = tmp_path / "app"
+    app.mkdir()
+
+    with pytest.raises(ValueError, match="cannot read git state"):
+        read_registry(_app_registry(tmp_path, app, "a" * 40), mode="full")
+
+
+def test_prepare_writes_the_pinned_app_commit(tmp_path: Path) -> None:
+    app, commit = _git_app(tmp_path)
+    (tmp_path / "reads.fq").write_text("@r\nACGT\n+\nIIII\n", encoding="utf-8")
+    sheet = tmp_path / "samples.tsv"
+    sheet.write_text(
+        "sample_id\tplatform\treads\nS1\tONT\treads.fq\n", encoding="utf-8"
+    )
+
+    prepare_inputs(
+        sheet,
+        _app_registry(tmp_path, app, commit),
+        tmp_path / "prepared",
+        mode="full",
+    )
+
+    config = (tmp_path / "prepared/dependencies.config").read_text(encoding="utf-8")
+    assert f"params.fixture_app_commit = '{commit}'\n" in config
+    assert "params.fixture_app_version = '1.0'\n" in config
+
+
+def test_source_digest_changes_when_an_app_moves_to_another_commit(
+    tmp_path: Path,
+) -> None:
+    app, commit = _git_app(tmp_path)
+    (tmp_path / "conf").mkdir()
+    registry = _app_registry(tmp_path, app, commit)
+    (tmp_path / "conf/databases.yaml").write_text(
+        registry.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    original = _source_digest(tmp_path)
+    (app / "extra.txt").write_text("more\n", encoding="utf-8")
+    _git(app, "add", "extra.txt")
+    _git(app, "commit", "-q", "-m", "moved")
+
+    assert _source_digest(tmp_path) != original
+
+
+def test_shipped_registry_pins_each_application_clone_to_a_commit() -> None:
+    registry = Registry.model_validate(yaml.safe_load(REGISTRY.read_text("utf-8")))
+
+    commits = {
+        name: entry.git_commit
+        for name, entry in registry.entries.items()
+        if name.endswith("_app")
+    }
+
+    assert commits == {
+        "checkeuk_app": "86ab78adab6b93031ef092a2dc47bcdd86243825",
+        "gvclass_app": "1517cc057a484cace264e5853a94b0038b4d32b3",
+        "ssuextract_app": "4dcf85d3796ef4ade3881594ad828428557d43f2",
+    }
+
+
+def test_shipped_registry_registers_the_tiara_and_busco_dependencies() -> None:
+    registry = Registry.model_validate(yaml.safe_load(REGISTRY.read_text("utf-8")))
+
+    assert {"contig_manifest", "eukqc_manifest", "busco_db"} <= set(registry.entries)
+    assert registry.entries["busco_db"].sentinels == ["dataset.cfg"]
+    assert registry.entries["eukqc_manifest"].executables == {
+        "busco": ["busco", "python"],
+        "tidk": ["tidk"],
+    }
+    assert registry.entries["viral_manifest"].executables == {
+        "genomad": ["genomad", "python"]
+    }
+    assert registry.entries["checkv_manifest"].executables == {
+        "checkv": ["checkv", "python"]
+    }

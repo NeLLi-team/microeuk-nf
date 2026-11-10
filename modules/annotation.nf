@@ -1,7 +1,7 @@
 process FUNCTIONAL_ANNOTATION {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'annotation'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     tuple val(meta), path(prodigal_dir), path(braker_dir)

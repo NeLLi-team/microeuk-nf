@@ -98,8 +98,8 @@ def test_collects_lifted_genes_partial_braker_and_annotations(
             3,
             "Functional annotation disabled by user (--skip-annotation).",
         ),
-        (True, False, 4, 0, "Gene calling disabled by user (--skip-gene-calling)."),
-        (True, True, 4, 0, "Gene calling disabled by user (--skip-gene-calling)."),
+        (True, False, 4, 0, "Gene calling not requested (skip_gene_calling=true)."),
+        (True, True, 4, 0, "Gene calling not requested (skip_gene_calling=true)."),
     ],
 )
 def test_disabled_stages_survive_collection_catalog_and_report(
@@ -1301,3 +1301,364 @@ def test_collects_checkm2_empty_protein_omission(tmp_path: Path) -> None:
             "SELECT target_id, completeness_percent, contamination_percent FROM qc "
             "WHERE stage_id = 'checkm2' ORDER BY target_id"
         ).fetchall() == [("euk1", 90.0, 103.62), ("prok", 70.0, 101.77)]
+
+
+BUSCO_HEADER = (
+    "Input_file\tDataset\tComplete\tSingle\tDuplicated\tFragmented\tMissing\t"
+    "n_markers\tScaffold N50\tContigs N50\tPercent gaps\tNumber of scaffolds\n"
+)
+BUSCO_ROWS = (
+    "euk1.fna\teukaryota_odb12\t91.0\t89.0\t2.0\t3.0\t6.0\t129\t1000\t1000\t0%\t1\n"
+    "euk2.fna\teukaryota_odb12\t50.5\t50.0\t0.5\t10.0\t39.5\t129\t1000\t1000\t0%\t1\n"
+)
+
+
+def _tiara_fixture(root: Path) -> Path:
+    stage = _stage(
+        root,
+        "15_contig_classification",
+        {
+            "stage": "tiara",
+            "status": "completed",
+            "tool": "Tiara",
+            "tool_version": "1.0.3",
+            "database_name": None,
+            "database_version": None,
+            "command": "tiara --input assembly_primary.fa --output tiara.tsv -m 1000",
+            "outputs": {"classification": "tiara.tsv", "log": "log_tiara.tsv"},
+        },
+    )
+    _write(
+        stage / "tiara.tsv",
+        "sequence_id\tclass_fst_stage\tclass_snd_stage\n"
+        "euk_contig_1\teukarya\tn/a\n"
+        "prok_contig\tbacteria\tn/a\n",
+    )
+    _write(stage / "log_tiara.tsv", "Tiara log\n")
+    return stage
+
+
+def _eukaryote_qc_fixture(
+    root: Path,
+    *,
+    summary: str = BUSCO_HEADER + BUSCO_ROWS,
+    status: str = "completed",
+    reason: str | None = None,
+) -> Path:
+    tools = {
+        "busco": {
+            "version": "6.1.0",
+            "database_name": "busco_db",
+            "database_version": "eukaryota_odb12.2",
+            "output": "busco/batch_summary.txt",
+        },
+        "tidk": {"version": "0.3.2", "output": "tidk/tidk_summary.tsv"},
+    }
+    stage = _stage(
+        root,
+        "16_eukaryote_qc",
+        {
+            "stage": "eukaryote_qc",
+            "status": status,
+            "reason": reason,
+            "tool": "BUSCO;tidk",
+            "tool_version": "6.1.0;0.3.2",
+            "command": "busco batch; tidk explore",
+            "outputs": {},
+            "tools": tools,
+        },
+    )
+    (stage / "busco").mkdir()
+    (stage / "tidk").mkdir()
+    _write(stage / "busco/batch_summary.txt", summary)
+    _write(
+        stage / "tidk/tidk_summary.tsv",
+        "bin_id\ttop_repeat\ttop_repeat_count\neuk1\tTTAGGG\t120\neuk2\t\t\n",
+    )
+    _write(
+        stage / "tidk/euk1.explore.tsv", "canonical_repeat_unit\tcount\nTTAGGG\t120\n"
+    )
+    _write(stage / "tidk/euk2.explore.tsv", "canonical_repeat_unit\tcount\n")
+    return stage
+
+
+def test_collects_tiara_as_artifacts_without_result_rows(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    tiara = _tiara_fixture(tmp_path / "stages")
+
+    bundle = validate_bundle(
+        collect_records(sample, [*stages[:4], tiara], tmp_path / "bundle.json")
+    )
+
+    stage = next(stage for stage in bundle.stages if stage.stage_id == "tiara")
+    assert stage.status == "completed"
+    assert stage.tool_name == "Tiara"
+    assert stage.tool_version == "1.0.3"
+    assert stage.input_artifact_ids == ["assembly"]
+    assert stage.expected_result_keys == []
+    kinds = {
+        Path(artifact.path).name: str(artifact.kind)
+        for artifact in bundle.artifacts
+        if artifact.producer_stage_id == "tiara"
+        and artifact.artifact_id != "tiara.manifest"
+    }
+    assert kinds == {"tiara.tsv": "taxonomy_report", "log_tiara.tsv": "other"}
+
+
+def test_routing_lists_the_tiara_and_checkm2_tables_as_inputs(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    tiara = _tiara_fixture(tmp_path / "stages")
+    screen = _checkm2_no_annotation_fixture(tmp_path / "stages")
+    checkm2 = json.loads((screen / "stage.json").read_text(encoding="utf-8"))
+    checkm2["tools"]["checkm2"].update(
+        status="completed", reason=None, output="checkm2/output/quality_report.tsv"
+    )
+    _write(screen / "stage.json", json.dumps(checkm2))
+    _write(screen / "checkm2/exit_code.txt", "0\n")
+    _write(
+        screen / "checkm2/output/quality_report.tsv",
+        "Name\tCompleteness\tContamination\tCompleteness_Model_Used\n"
+        "euk1\t90\t1\tNeural Network (Specific Model)\n"
+        "euk2\t90\t1\tNeural Network (Specific Model)\n"
+        "prok\t90\t1\tNeural Network (Specific Model)\n",
+    )
+
+    bundle = validate_bundle(
+        collect_records(sample, [*stages[:4], screen, tiara], tmp_path / "bundle.json")
+    )
+
+    routing = next(stage for stage in bundle.stages if stage.stage_id == "routing")
+    inputs = set(routing.input_artifact_ids)
+    assert "checkm2.quality_report.qc" in inputs
+    assert any(name.startswith("tiara.classification.") for name in inputs)
+    assert not any(name.startswith("tiara.log.") for name in inputs)
+
+
+def test_collects_busco_as_qc_rows_and_tidk_as_artifacts(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(tmp_path / "stages")
+    bundle_path = collect_records(
+        sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json"
+    )
+    bundle = validate_bundle(bundle_path)
+    database = build_catalog(bundle_path, tmp_path / "catalog.sqlite")
+
+    by_id = {stage.stage_id: stage for stage in bundle.stages}
+    busco = by_id["busco"]
+    assert busco.status == "completed"
+    assert busco.tool_version == "6.1.0"
+    assert (busco.database_name, busco.database_version) == (
+        "busco_db",
+        "eukaryota_odb12.2",
+    )
+    assert busco.input_artifact_ids == ["bin.euk1", "bin.euk2"]
+    assert set(busco.expected_result_keys) == {"qc:busco:qc:euk1", "qc:busco:qc:euk2"}
+    assert busco.notes.splitlines() == [
+        (
+            "BUSCO duplicated percent is stored as contamination_percent but is not "
+            "a contamination estimate."
+        ),
+        "euk1: BUSCO fragmented 3.0%, missing 6.0%",
+        "euk2: BUSCO fragmented 10.0%, missing 39.5%",
+    ]
+    tidk = by_id["tidk"]
+    assert tidk.status == "completed"
+    assert tidk.tool_version == "0.3.2"
+    assert tidk.input_artifact_ids == ["bin.euk1", "bin.euk2"]
+    assert tidk.expected_result_keys == []
+    tidk_artifacts = {
+        Path(artifact.path).name: str(artifact.kind)
+        for artifact in bundle.artifacts
+        if artifact.producer_stage_id == "tidk"
+        and artifact.artifact_id != "tidk.manifest"
+    }
+    assert tidk_artifacts == {
+        "tidk_summary.tsv": "qc_report",
+        "euk1.explore.tsv": "qc_report",
+        "euk2.explore.tsv": "qc_report",
+    }
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert connection.execute(
+            "SELECT target_id, completeness_percent, completeness_basis, "
+            "contamination_percent, contamination_basis FROM qc "
+            "WHERE stage_id = 'busco' ORDER BY target_id"
+        ).fetchall() == [
+            (
+                "euk1",
+                91.0,
+                "BUSCO eukaryota_odb12 complete (n=129)",
+                2.0,
+                "BUSCO duplicated (not a contamination estimate)",
+            ),
+            (
+                "euk2",
+                50.5,
+                "BUSCO eukaryota_odb12 complete (n=129)",
+                0.5,
+                "BUSCO duplicated (not a contamination estimate)",
+            ),
+        ]
+
+
+def test_collects_a_busco_failure_row_as_a_note_without_a_qc_row(
+    tmp_path: Path,
+) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    failure_row = "euk2.fna\tNo genes found" + "\t" * 10 + "\n"
+    eukaryote_qc = _eukaryote_qc_fixture(
+        tmp_path / "stages",
+        summary=BUSCO_HEADER + BUSCO_ROWS.splitlines(keepends=True)[0] + failure_row,
+    )
+
+    bundle = validate_bundle(
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+    )
+
+    busco = next(stage for stage in bundle.stages if stage.stage_id == "busco")
+    assert busco.status == "completed"
+    assert busco.expected_result_keys == ["qc:busco:qc:euk1"]
+    assert busco.notes.splitlines() == [
+        (
+            "BUSCO duplicated percent is stored as contamination_percent but is not "
+            "a contamination estimate."
+        ),
+        "euk1: BUSCO fragmented 3.0%, missing 6.0%",
+        "euk2: BUSCO No genes found",
+    ]
+
+
+def test_busco_reader_tolerates_a_hash_header_and_extra_columns(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(
+        tmp_path / "stages", summary="# " + BUSCO_HEADER + BUSCO_ROWS
+    )
+
+    bundle = validate_bundle(
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+    )
+
+    assert {row.target_id for row in bundle.qc if row.stage_id == "busco"} == {
+        "euk1",
+        "euk2",
+    }
+
+
+def test_busco_reader_names_a_missing_column(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(
+        tmp_path / "stages", summary=BUSCO_HEADER.replace("Duplicated", "Dup")
+    )
+
+    with pytest.raises(ValueError, match=r"missing required columns \['Duplicated'\]"):
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+
+
+def test_busco_must_cover_exactly_the_routed_eukaryotic_bins(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(
+        tmp_path / "stages", summary=BUSCO_HEADER + BUSCO_ROWS.splitlines(True)[0]
+    )
+
+    with pytest.raises(ValueError, match="busco output does not cover exactly"):
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+
+
+def test_skipped_eukaryote_qc_records_both_tools_as_skipped(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(
+        tmp_path / "stages", status="skipped", reason="no_routed_eukaryotic_bins"
+    )
+
+    bundle = validate_bundle(
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+    )
+
+    skipped = {
+        stage.stage_id: stage for stage in bundle.stages if stage.status == "skipped"
+    }
+    assert {"busco", "tidk"} <= skipped.keys()
+    assert {skipped["busco"].status_reason, skipped["tidk"].status_reason} == {
+        "no_routed_eukaryotic_bins"
+    }
+    assert not [row for row in bundle.qc if row.stage_id == "busco"]
+
+
+def test_collects_the_saved_tool_command_for_a_merged_stage(tmp_path: Path) -> None:
+    """A tool's own saved script beats the merge process script."""
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(tmp_path / "stages")
+    manifest_path = eukaryote_qc / "stage.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["tools"]["busco"]["command_file"] = "busco/command.sh"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _write(
+        eukaryote_qc / "busco/command.sh", "\n#!/usr/bin/env bash\nbusco -m genome\n"
+    )
+
+    bundle = validate_bundle(
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+    )
+
+    by_id = {stage.stage_id: stage for stage in bundle.stages}
+    assert by_id["busco"].command == "#!/usr/bin/env bash\nbusco -m genome"
+    assert by_id["tidk"].command == "busco batch; tidk explore"
+
+
+def test_missing_saved_tool_command_fails_a_completed_tool(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(tmp_path / "stages")
+    manifest_path = eukaryote_qc / "stage.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["tools"]["busco"]["command_file"] = "busco/command.sh"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError, match=r"command\.sh"):
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+
+
+def test_saved_tool_command_cannot_escape_its_stage(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    eukaryote_qc = _eukaryote_qc_fixture(tmp_path / "stages")
+    manifest_path = eukaryote_qc / "stage.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["tools"]["busco"]["command_file"] = "../../sample.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="escapes its stage directory"):
+        collect_records(sample, [*stages[:4], eukaryote_qc], tmp_path / "bundle.json")
+
+
+def test_core_mode_records_every_unrun_stage_under_its_real_id(tmp_path: Path) -> None:
+    sample, stages = _full_fixture(tmp_path)
+    metadata = json.loads(sample.read_text(encoding="utf-8"))
+    metadata["run_mode"] = "core"
+    sample.write_text(json.dumps(metadata), encoding="utf-8")
+
+    bundle = validate_bundle(
+        collect_records(sample, stages[:3], tmp_path / "bundle.json")
+    )
+
+    skipped = {stage.stage_id for stage in bundle.stages if stage.status == "skipped"}
+    assert skipped == {
+        "checkeuk",
+        "checkm2",
+        "checkm1",
+        "gvclass",
+        "gtdbtk",
+        "ssu",
+        "genomad",
+        "checkv",
+        "symclatron",
+        "tiara",
+        "routing",
+        "busco",
+        "tidk",
+        "repeat_masking",
+        "rna_alignment",
+        "prodigal_gv",
+        "braker3",
+        "functional_annotation",
+        "eggnog_mapper",
+        "interproscan",
+    }

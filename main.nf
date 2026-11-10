@@ -1,15 +1,21 @@
-nextflow.enable.dsl = 2
-
 include { CORE_PREFLIGHT; FULL_PREFLIGHT } from './modules/preflight'
 include { READ_QC; ASSEMBLE; MAP_DEPTH_QUICKBIN } from './modules/core'
 include {
+    CHECKEUK_SCREEN;
+    CHECKM2_SCREEN;
+    GVCLASS_SCREEN;
     ALL_BIN_SCREEN;
     SSU_EXTRACT;
     VIRAL_SCREEN;
-    ROUTE_BINS
+    CONTIG_CLASSIFY;
+    ROUTE_BINS;
+    CHECKM1_QC;
+    GTDBTK_CLASSIFY;
+    SYMCLATRON_CLASSIFY;
+    PROKARYOTE_CHARACTERIZATION;
+    EUKARYOTE_QC
 } from './modules/characterization'
 include {
-    PROKARYOTE_CHARACTERIZATION;
     REPEAT_MASK_EUKARYOTES;
     MAP_RNA_EVIDENCE;
     BRAKER3_EUKARYOTES;
@@ -25,7 +31,7 @@ workflow {
     if (!(params.run_mode in ['core', 'full'])) {
         error "--run_mode must be core or full, received: ${params.run_mode}"
     }
-    for (name in ['skip_gene_calling', 'skip_annotation', 'skip_repeat_masking']) {
+    ['skip_gene_calling', 'skip_annotation', 'skip_repeat_masking'].each { name ->
         if (!(params[name] instanceof Boolean)) {
             error "--${name} must be a boolean, received: ${params[name]}"
         }
@@ -35,8 +41,8 @@ workflow {
         }
     }
 
-    runId = (params.run_id ?: workflow.runName).toString().replaceAll(/[^A-Za-z0-9_.-]/, '_')
-    samples = Channel
+    def runId = (params.run_id ?: workflow.runName).toString().replaceAll(/[^A-Za-z0-9_.-]/, '_')
+    def samples = channel
         .fromPath(params.input, checkIfExists: true)
         .splitCsv(header: true, sep: '\t')
         .map { row ->
@@ -73,7 +79,8 @@ workflow {
             )
         }
 
-    sampleMeta = samples.map { meta, reads, assembly, rna, proteins, softmasked -> meta }
+    def sampleMeta = samples.map { meta, _reads, _assembly, _rna, _proteins, _softmasked -> meta }
+    def preflight = channel.empty()
     if (params.run_mode == 'full') {
         FULL_PREFLIGHT(sampleMeta)
         preflight = FULL_PREFLIGHT.out.result
@@ -82,92 +89,128 @@ workflow {
         preflight = CORE_PREFLIGHT.out.result
     }
 
-    readsBySample = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+    def readsBySample = samples.map { meta, reads, _assembly, _rna, _proteins, _softmasked ->
         tuple(meta.sample_id, meta, reads)
     }
-    preflightBySample = preflight.map { meta, stageDir -> tuple(meta.sample_id, stageDir) }
-    qcInput = readsBySample
+    def preflightBySample = preflight.map { meta, stageDir -> tuple(meta.sample_id, stageDir) }
+    def qcInput = readsBySample
         .join(preflightBySample)
-        .map { sampleId, meta, reads, stageDir -> tuple(meta, reads, stageDir) }
+        .map { _sampleId, meta, reads, stageDir -> tuple(meta, reads, stageDir) }
     READ_QC(qcInput)
-    suppliedAssemblies = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+    def suppliedAssemblies = samples.map { meta, _reads, assembly, _rna, _proteins, _softmasked ->
         tuple(meta.sample_id, assembly)
     }
-    assemblyInput = READ_QC.out.result
+    def assemblyInput = READ_QC.out.result
         .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
         .join(suppliedAssemblies)
-        .map { sampleId, meta, readQcDir, suppliedAssembly ->
+        .map { _sampleId, meta, readQcDir, suppliedAssembly ->
             tuple(meta, readQcDir, suppliedAssembly)
         }
     ASSEMBLE(assemblyInput)
-    mappingInput = ASSEMBLE.out.result
+    def mappingInput = ASSEMBLE.out.result
         .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
         .join(READ_QC.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-        .map { sampleId, meta, assemblyDir, readQcDir -> tuple(meta, assemblyDir, readQcDir) }
+        .map { _sampleId, meta, assemblyDir, readQcDir -> tuple(meta, assemblyDir, readQcDir) }
     MAP_DEPTH_QUICKBIN(mappingInput)
 
-    if (params.run_mode == 'full') {
-        ALL_BIN_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
-        SSU_EXTRACT(ASSEMBLE.out.result)
-        VIRAL_SCREEN(ASSEMBLE.out.result)
+    def stageDirs = preflight.mix(
+        READ_QC.out.result,
+        ASSEMBLE.out.result,
+        MAP_DEPTH_QUICKBIN.out.result
+    )
 
-        routeInput = MAP_DEPTH_QUICKBIN.out.result
+    if (params.run_mode == 'full') {
+        // The call order is the submission order of the local executor: the independent
+        // assembly consumers start first, the longest bin screen leads the three screens.
+        SSU_EXTRACT(ASSEMBLE.out.result)
+        CONTIG_CLASSIFY(ASSEMBLE.out.result)
+        VIRAL_SCREEN(ASSEMBLE.out.result)
+        GVCLASS_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
+        CHECKEUK_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
+        CHECKM2_SCREEN(MAP_DEPTH_QUICKBIN.out.result)
+
+        def screenInput = MAP_DEPTH_QUICKBIN.out.result
+            .map { meta, binningDir -> tuple(meta.sample_id, meta, binningDir) }
+            .join(CHECKEUK_SCREEN.out.result.map { meta, dir, report -> tuple(meta.sample_id, dir, report) })
+            .join(CHECKM2_SCREEN.out.result.map { meta, dir, report -> tuple(meta.sample_id, dir, report) })
+            .join(GVCLASS_SCREEN.out.result.map { meta, dir, report -> tuple(meta.sample_id, dir, report) })
+            .map { _sampleId, meta, binningDir, checkeukDir, checkeukReport, checkm2Dir, checkm2Report, gvclassDir, gvclassReport ->
+                tuple(meta, binningDir, checkeukDir, checkeukReport, checkm2Dir, checkm2Report, gvclassDir, gvclassReport)
+            }
+        ALL_BIN_SCREEN(screenInput)
+
+        def routeInput = MAP_DEPTH_QUICKBIN.out.result
             .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
             .join(ALL_BIN_SCREEN.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
             .join(SSU_EXTRACT.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
             .join(VIRAL_SCREEN.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-            .map { sampleId, meta, binningDir, screenDir, ssuDir, viralDir ->
-                tuple(meta, binningDir, screenDir, ssuDir, viralDir)
+            .join(CONTIG_CLASSIFY.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
+            .map { _sampleId, meta, binningDir, screenDir, ssuDir, viralDir, tiaraDir ->
+                tuple(meta, binningDir, screenDir, ssuDir, viralDir, tiaraDir)
             }
         ROUTE_BINS(routeInput)
-        PROKARYOTE_CHARACTERIZATION(ROUTE_BINS.out.result)
 
-        geneStages = Channel.empty()
-        annotationStages = Channel.empty()
+        EUKARYOTE_QC(ROUTE_BINS.out.result)
+        CHECKM1_QC(ROUTE_BINS.out.result)
+        SYMCLATRON_CLASSIFY(ROUTE_BINS.out.result)
+        GTDBTK_CLASSIFY(ROUTE_BINS.out.result)
+
+        def prokaryoteInput = ROUTE_BINS.out.result
+            .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
+            .join(CHECKM1_QC.out.result.map { meta, dir, report -> tuple(meta.sample_id, dir, report) })
+            .join(GTDBTK_CLASSIFY.out.result.map { meta, dir, report -> tuple(meta.sample_id, dir, report) })
+            .join(SYMCLATRON_CLASSIFY.out.result.map { meta, dir, report -> tuple(meta.sample_id, dir, report) })
+            .map { _sampleId, meta, routingDir, checkm1Dir, checkm1Report, gtdbtkDir, gtdbtkReport, symclatronDir, symclatronReport ->
+                tuple(meta, routingDir, checkm1Dir, checkm1Report, gtdbtkDir, gtdbtkReport, symclatronDir, symclatronReport)
+            }
+        PROKARYOTE_CHARACTERIZATION(prokaryoteInput)
+
+        def geneStages = channel.empty()
+        def annotationStages = channel.empty()
         if (!params.skip_gene_calling) {
-            geneRouting = ROUTE_BINS.out.result
+            def geneRouting = ROUTE_BINS.out.result
                 .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
                 .join(PROKARYOTE_CHARACTERIZATION.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-                .map { sampleId, meta, routingDir, prokDir -> tuple(sampleId, meta, routingDir) }
-            repeatStages = Channel.empty()
-            eukaryoticGenomes = geneRouting.map { sampleId, meta, routingDir -> tuple(meta, routingDir) }
+                .map { sampleId, meta, routingDir, _prokaryoteDir -> tuple(sampleId, meta, routingDir) }
+            def repeatStages = channel.empty()
+            def eukaryoticGenomes = geneRouting.map { _sampleId, meta, routingDir -> tuple(meta, routingDir) }
             if (!params.skip_repeat_masking) {
-                suppliedSoftmasked = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+                def suppliedSoftmasked = samples.map { meta, _reads, _assembly, _rna, _proteins, softmasked ->
                     tuple(meta.sample_id, softmasked)
                 }
-                maskingInput = geneRouting
+                def maskingInput = geneRouting
                     .join(suppliedSoftmasked)
-                    .map { sampleId, meta, routingDir, softmasked -> tuple(meta, routingDir, softmasked) }
+                    .map { _sampleId, meta, routingDir, softmasked -> tuple(meta, routingDir, softmasked) }
                 REPEAT_MASK_EUKARYOTES(maskingInput)
                 repeatStages = REPEAT_MASK_EUKARYOTES.out.result
                 eukaryoticGenomes = repeatStages
             }
 
-            rnaInputBase = ASSEMBLE.out.result
+            def rnaInputBase = ASSEMBLE.out.result
                 .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
                 .join(eukaryoticGenomes.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-            suppliedRna = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+            def suppliedRna = samples.map { meta, _reads, _assembly, rna, _proteins, _softmasked ->
                 tuple(meta.sample_id, rna)
             }
-            rnaInput = rnaInputBase
+            def rnaInput = rnaInputBase
                 .join(suppliedRna)
-                .map { sampleId, meta, assemblyDir, maskingDir, rna -> tuple(meta, assemblyDir, maskingDir, rna) }
+                .map { _sampleId, meta, assemblyDir, maskingDir, rna -> tuple(meta, assemblyDir, maskingDir, rna) }
             MAP_RNA_EVIDENCE(rnaInput)
 
-            brakerInputBase = eukaryoticGenomes
+            def brakerInputBase = eukaryoticGenomes
                 .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
                 .join(MAP_RNA_EVIDENCE.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-            suppliedProteins = samples.map { meta, reads, assembly, rna, proteins, softmasked ->
+            def suppliedProteins = samples.map { meta, _reads, _assembly, _rna, proteins, _softmasked ->
                 tuple(meta.sample_id, proteins)
             }
-            brakerInput = brakerInputBase
+            def brakerInput = brakerInputBase
                 .join(suppliedProteins)
-                .map { sampleId, meta, maskingDir, rnaDir, proteins -> tuple(meta, maskingDir, rnaDir, proteins) }
+                .map { _sampleId, meta, maskingDir, rnaDir, proteins -> tuple(meta, maskingDir, rnaDir, proteins) }
             BRAKER3_EUKARYOTES(brakerInput)
 
-            prodigalInput = geneRouting
+            def prodigalInput = geneRouting
                 .join(VIRAL_SCREEN.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-                .map { sampleId, meta, routingDir, viralDir -> tuple(meta, routingDir, viralDir) }
+                .map { _sampleId, meta, routingDir, viralDir -> tuple(meta, routingDir, viralDir) }
             PRODIGAL_GV_GENES(prodigalInput)
 
             geneStages = repeatStages.mix(
@@ -176,43 +219,36 @@ workflow {
                 PRODIGAL_GV_GENES.out.result
             )
             if (!params.skip_annotation) {
-                annotationInput = PRODIGAL_GV_GENES.out.result
+                def annotationInput = PRODIGAL_GV_GENES.out.result
                     .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
                     .join(BRAKER3_EUKARYOTES.out.result.map { meta, stageDir -> tuple(meta.sample_id, stageDir) })
-                    .map { sampleId, meta, prodigalDir, brakerDir -> tuple(meta, prodigalDir, brakerDir) }
+                    .map { _sampleId, meta, prodigalDir, brakerDir -> tuple(meta, prodigalDir, brakerDir) }
                 FUNCTIONAL_ANNOTATION(annotationInput)
                 annotationStages = FUNCTIONAL_ANNOTATION.out.result
             }
         }
 
-        stageDirs = preflight.mix(
-            READ_QC.out.result,
-            ASSEMBLE.out.result,
-            MAP_DEPTH_QUICKBIN.out.result,
+        stageDirs = stageDirs.mix(
             ALL_BIN_SCREEN.out.result,
             SSU_EXTRACT.out.result,
             VIRAL_SCREEN.out.result,
+            CONTIG_CLASSIFY.out.result,
             ROUTE_BINS.out.result,
             PROKARYOTE_CHARACTERIZATION.out.result,
+            EUKARYOTE_QC.out.result,
             geneStages,
             annotationStages
         )
-    } else {
-        stageDirs = preflight.mix(
-            READ_QC.out.result,
-            ASSEMBLE.out.result,
-            MAP_DEPTH_QUICKBIN.out.result
-        )
     }
 
-    groupedStages = stageDirs
+    def groupedStages = stageDirs
         .map { meta, stageDir -> tuple(meta.sample_id, meta, stageDir) }
         .groupTuple(by: 0)
-        .map { sampleId, metas, dirs -> tuple(metas[0], dirs) }
+        .map { _sampleId, metas, dirs -> tuple(metas[0], dirs.sort(false) { dir -> dir.name }) }
     COLLECT_RECORDS(groupedStages)
 
-    allRecords = COLLECT_RECORDS.out.result
-        .map { meta, records -> records }
+    def allRecords = COLLECT_RECORDS.out.result
+        .map { _meta, records -> records }
         .collect()
     BUILD_CATALOG(allRecords)
     BUILD_REPORT(BUILD_CATALOG.out.result)

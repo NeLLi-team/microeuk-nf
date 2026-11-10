@@ -34,7 +34,8 @@ run_dir="$proof/workflow"
 bash scripts/run-allocation.slurm "$samples" "$run_dir" full --ont-min-length 1000
 sample=$(awk -F '\t' 'NR == 2 {print $1}' "$samples")
 qc="$run_dir/results/$sample/01_read_qc"
-grep -F '"command": "chopper -q 10 -l 1000 --threads 1"' "$qc/stage.json"
+# READ_QC gives Chopper half of its CPUs, so the recorded thread count follows the label.
+grep -E '"command": "chopper -q 10 -l 1000 --threads [0-9]+"' "$qc/stage.json"
 awk -F '\t' 'NR == 2 {ok=($4 > 0 && $6 >= 1000)} END {exit !ok}' "$qc/filtered_stats.tsv"
 grep -Fx $'ont_min_length\t1000' "$run_dir/prepared/resume-identity.tsv"
 sha256sum "$run_dir/results/catalog/protist-meta.sqlite" \
@@ -43,6 +44,8 @@ sha256sum "$run_dir/results/catalog/protist-meta.sqlite" \
 bash scripts/run-allocation.slurm "$samples" "$run_dir" full resume --ont-min-length 1000
 sha256sum --check "$proof/before-resume.sha256" > "$proof/resume-check.txt"
 
+# The identity records the effective length. Omitting the option means the default of 500,
+# so both an omitted option and an explicit 500 differ from the saved 1000.
 for requested in omitted 500; do
     options=()
     if [[ "$requested" != omitted ]]; then

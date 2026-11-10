@@ -1,0 +1,14 @@
+[workspace]
+name = "protist-viral-screen"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[feature.genomad.dependencies]
+genomad = "==1.13.0"
+
+[feature.checkv.dependencies]
+checkv = "==1.1.1"
+
+[environments]
+genomad = { features = ["genomad"], no-default-feature = true }
+checkv = { features = ["checkv"], no-default-feature = true }

@@ -12,7 +12,8 @@ fi
 
 root=$PWD
 proof=$(realpath -m "$1")
-ssuextract=/clusterfs/jgi/scratch/science/mgs/nelli/frederik/projects/apps/ssuextract
+# The frozen SSUextract clone registered as ssuextract_app in conf/databases.yaml.
+ssuextract=$(realpath "$root/../protist-meta-runtimes/ssuextract-1.2.2-4dcf85d")
 root_bash="$root/.pixi/envs/default/bin/bash"
 module="$root/modules/characterization.nf"
 nested_config="$proof/generated-nested.config"
@@ -47,6 +48,7 @@ awk '
     capture {print}
 ' "$module" | sed \
         -e "s#\${projectDir}#$root#g" \
+        -e 's/${Math.min(8, nestedCpus)}/1/g' \
         -e 's/${nestedCpus}/1/g' \
         -e 's/${nestedMemoryGb}/4/g' \
         > "$nested_config"
@@ -83,7 +85,8 @@ cp "$nested_config" "$proof/config-ssu/nested.config"
         > "$proof/ssu-resolved.config"
 )
 
-grep -F "process.'withName:READ_QC'.time = { 8.h * task.attempt }" \
+grep -F "process.'withLabel:read_qc'.time = '6h'" "$proof/root-resolved.config"
+grep -F "process.'withName:READ_QC'.time = { 6.h * task.attempt }" \
     "$proof/root-resolved.config"
 grep -F "process.'withName:READ_QC'.maxRetries = 1" \
     "$proof/root-resolved.config"
@@ -91,13 +94,12 @@ grep -F "process.'withName:BLAST_ANNOTATE'.time = { [8.h * task.attempt, params.
     "$proof/ssu-resolved.config"
 grep -F "process.'withName:BLAST_ANNOTATE'.maxRetries = 1" \
     "$proof/ssu-resolved.config"
-printf 'default budgets: READ_QC=8h/16h BLAST_ANNOTATE=8h/16h\n'
+printf 'default budgets: READ_QC=6h/12h BLAST_ANNOTATE=8h/16h\n'
 
 write_flow() {
     local process_name=$1
     local path=$2
     sed "s/PROCESS_NAME/$process_name/g" > "$path" <<'NEXTFLOW'
-nextflow.enable.dsl = 2
 params.mode = null
 
 process PROCESS_NAME {
@@ -242,7 +244,7 @@ run_case() {
     fi
 }
 
-run_case root READ_QC default
+run_case root READ_QC default 6
 run_case ssu BLAST_ANNOTATE default
 run_case ssu BLAST_ANNOTATE capped 4 4.h
 run_case root READ_QC timeout

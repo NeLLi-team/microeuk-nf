@@ -44,13 +44,14 @@ pixi run --as-is bash scripts/require-pixi-tools.sh \
     dirname env find grep head ln ls mkdir mktemp mv ps realpath rm sed sha256sum \
     sleep sort tail tee touch tr uname uniq wc xargs \
     > "$proof/pixi-tools.tsv"
-pixi run --as-is python scripts/generate_models.py > "$proof/generate.log" 2>&1
-mapfile -t sources < <(find src scripts tests -type f -name '*.py' | LC_ALL=C sort)
 status=0
-if ! pixi run --as-is python /clusterfs/jgi/groups/science/homes/fschulz/.agents/skills/python-style/scripts/check.py "${sources[@]}" > "$proof/python-style.log" 2>&1; then
+# Check the committed models before regenerating them: after a regeneration the check cannot fail.
+if ! pixi run --as-is python scripts/generate_models.py --check > "$proof/schema-check.log" 2>&1; then
     status=1
 fi
-if ! pixi run --as-is python scripts/generate_models.py --check > "$proof/schema-check.log" 2>&1; then
+pixi run --as-is python scripts/generate_models.py > "$proof/generate.log" 2>&1
+mapfile -t sources < <(find src scripts tests -type f -name '*.py' | LC_ALL=C sort)
+if ! pixi run --as-is python /clusterfs/jgi/groups/science/homes/fschulz/.agents/skills/python-style/scripts/check.py "${sources[@]}" > "$proof/python-style.log" 2>&1; then
     status=1
 fi
 if ! pixi run --as-is python -m pytest -q > "$proof/pytest.log" 2>&1; then
@@ -60,26 +61,44 @@ if ! pixi run --as-is bash tests/check_prodigal_parallel.sh "$proof/prodigal-par
     > "$proof/prodigal-parallel.log" 2>&1; then
     status=1
 fi
+if ! pixi run --as-is bash tests/check_stage_merge.sh "$proof/stage-merge" \
+    > "$proof/stage-merge.log" 2>&1; then
+    status=1
+fi
 if ! pixi run --as-is mkdocs build --strict > "$proof/docs.log" 2>&1; then
     status=1
 fi
 if ! pixi run --as-is nextflow config -flat > "$proof/nextflow.config" 2> "$proof/nextflow-config.err"; then
     status=1
 fi
+if ! pixi run --as-is nextflow lint main.nf modules nextflow.config conf > "$proof/nextflow-lint.log" 2>&1; then
+    status=1
+fi
 printf '@preview\nACGT\n+\nIIII\n' > "$proof/preview.fastq"
 printf 'sample_id\tplatform\treads\nPREVIEW\tONT\t%s\n' \
     "$proof/preview.fastq" > "$proof/preview-samples.tsv"
-for mode in core full; do
-    mkdir -p "$proof/preview-$mode"
+# Gene calling is off by default. A boolean override needs a params file: the command line
+# passes `--skip_gene_calling false` as a string, which main.nf rejects.
+printf '{"skip_gene_calling": false}\n' > "$proof/preview-gene-calling.json"
+printf '{"skip_gene_calling": false, "skip_repeat_masking": false}\n' \
+    > "$proof/preview-repeat-masking.json"
+run_preview() {
+    local name=$1 mode=$2
+    shift 2
+    mkdir -p "$proof/preview-$name"
     if ! (
-        cd "$proof/preview-$mode"
+        cd "$proof/preview-$name"
         pixi run --as-is --manifest-path "$project_root/pixi.toml" \
-            nextflow -log "$proof/preview-$mode.log" run "$project_root/main.nf" \
-            -preview -offline --input "$proof/preview-samples.tsv" --run_mode "$mode"
-    ) > "$proof/preview-$mode.stdout" 2>&1; then
+            nextflow -log "$proof/preview-$name.log" run "$project_root/main.nf" \
+            -preview -offline --input "$proof/preview-samples.tsv" --run_mode "$mode" "$@"
+    ) > "$proof/preview-$name.stdout" 2>&1; then
         status=1
     fi
-done
+}
+run_preview core core
+run_preview full full
+run_preview full-gene-calling full -params-file "$proof/preview-gene-calling.json"
+run_preview full-repeat-masking full -params-file "$proof/preview-repeat-masking.json"
 sha256sum "${sources[@]}" schema/catalog.yaml pixi.lock > "$proof/source.sha256"
 printf '%s\n' "$status" > "$proof/exit-status.txt"
 exit "$status"

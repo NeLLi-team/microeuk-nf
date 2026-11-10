@@ -1,95 +1,7 @@
-process PROKARYOTE_CHARACTERIZATION {
-    tag "${meta.sample_id}"
-    label 'heavy_qc'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
-
-    input:
-    tuple val(meta), path(routing_dir)
-
-    output:
-    tuple val(meta), path('08_prokaryote_qc'), emit: result
-
-    script:
-    """
-    mkdir -p 08_prokaryote_qc/{checkm1,checkm2,gtdbtk,symclatron}
-    BIN_COUNT=\$(find "${routing_dir}/prokaryotic" -maxdepth 1 -type f -name '*.fna' -size +0c | wc -l)
-    STATUS=skipped
-    REASON=no_routed_prokaryotic_bins
-    if [[ \${BIN_COUNT} -gt 0 ]]; then
-        STATUS=completed
-        REASON=
-        export CHECKM_DATA_PATH="${params.checkm1_db}"
-        TMPDIR=/tmp pixi run --as-is --manifest-path "${params.checkm_manifest}" --environment checkm1 \
-            checkm lineage_wf --reduced_tree --extension fna --threads ${task.cpus} \
-            --pplacer_threads 8 --tab_table --file "\$PWD/08_prokaryote_qc/checkm1/quality_report.tsv" \
-            --tmpdir /tmp "${routing_dir}/prokaryotic" \
-            "\$PWD/08_prokaryote_qc/checkm1/output"
-        [[ -s 08_prokaryote_qc/checkm1/quality_report.tsv ]]
-
-        export GTDBTK_DATA_PATH="${params.gtdbtk_db}"
-        TMPDIR=/tmp pixi run --as-is --manifest-path "${params.checkm_manifest}" --environment gtdbtk232 \
-            gtdbtk classify_wf --genome_dir "${routing_dir}/prokaryotic" \
-            --out_dir 08_prokaryote_qc/gtdbtk --extension fna \
-            --cpus ${task.cpus} --pplacer_cpus 8 --tmpdir /tmp
-        [[ \$(find 08_prokaryote_qc/gtdbtk -type f \
-            -name 'gtdbtk.*.summary.tsv' -size +0c | wc -l) -gt 0 ]]
-
-        pixi run --as-is --manifest-path "${params.checkm_manifest}" --environment symclatron \
-            symclatron classify --genome-dir "${routing_dir}/prokaryotic" \
-            --input-kind contigs --input-ext .fna --threads ${task.cpus} \
-            --confidence-threshold 0.725 --output-dir 08_prokaryote_qc/symclatron
-        [[ -s 08_prokaryote_qc/symclatron/symclatron_results.tsv ]]
-        [[ \$(awk 'END {print NR - 1}' 08_prokaryote_qc/symclatron/symclatron_results.tsv) -eq \${BIN_COUNT} ]]
-    fi
-
-    CHECKM1_VERSION=\$(pixi run --as-is --quiet --manifest-path "${params.checkm_manifest}" \
-        --environment checkm1 python -c \
-        'from pathlib import Path; import checkm; print((Path(checkm.__file__).parent / "VERSION").read_text().splitlines()[0])')
-    GTDBTK_VERSION=\$(pixi run --as-is --quiet --manifest-path "${params.checkm_manifest}" \
-        --environment gtdbtk232 python -c \
-        'from importlib.metadata import version; print(version("gtdbtk"))')
-    SYMCLATRON_VERSION=\$(pixi run --as-is --quiet --manifest-path "${params.checkm_manifest}" \
-        --environment symclatron symclatron --version)
-    SYMCLATRON_VERSION=\$(printf '%s\n' "\${SYMCLATRON_VERSION}" | sed 's/"/\\\\"/g')
-    [[ -n "\${CHECKM1_VERSION}" && -n "\${GTDBTK_VERSION}" && -n "\${SYMCLATRON_VERSION}" ]]
-
-    cat > 08_prokaryote_qc/stage.json <<JSON
-    {
-      "stage": "prokaryote_qc",
-      "status": "\${STATUS}",
-      "tool": "CheckM1;GTDB-Tk;Symclatron",
-      "tool_version": "CheckM1 \${CHECKM1_VERSION}; GTDB-Tk \${GTDBTK_VERSION}; Symclatron \${SYMCLATRON_VERSION}",
-      "database_name": "checkm1_db;gtdbtk_db;symclatron_bundled",
-      "database_version": "CheckM1 ${params.checkm1_db_version}; GTDB-Tk ${params.gtdbtk_db_version}; Symclatron bundled",
-      "command": "bounded per-sample batch over routed prokaryotic bins",
-      "reason": "\${REASON}",
-      "tools": {
-        "checkm1": {"version": "\${CHECKM1_VERSION}", "database_name": "checkm1_db", "database_version": "${params.checkm1_db_version}", "output": "checkm1/quality_report.tsv"},
-        "gtdbtk": {"version": "\${GTDBTK_VERSION}", "database_name": "gtdbtk_db", "database_version": "${params.gtdbtk_db_version}", "output": "gtdbtk"},
-        "symclatron": {"version": "\${SYMCLATRON_VERSION}", "database_name": "symclatron_bundled", "database_version": "bundled", "output": "symclatron/symclatron_results.tsv"}
-      },
-      "outputs": {
-        "checkm1": "checkm1/quality_report.tsv",
-        "gtdbtk": "gtdbtk",
-        "symclatron": "symclatron/symclatron_results.tsv"
-      }
-    }
-JSON
-    """
-
-    stub:
-    """
-    mkdir -p 08_prokaryote_qc/{checkm1,gtdbtk,symclatron}
-    printf 'Bin Id\tMarker lineage\n' > 08_prokaryote_qc/checkm1/quality_report.tsv
-    printf 'taxon_oid\tcompleteness_UNI56\tclassification\tconfidence\tpasses_confidence_threshold\tclassification_thresholded\n' > 08_prokaryote_qc/symclatron/symclatron_results.tsv
-    printf '%s\n' '{"stage":"prokaryote_qc","status":"skipped","tool":"stub","tool_version":"stub","database_version":"stub","command":"stub","outputs":{"checkm1":"checkm1/quality_report.tsv","gtdbtk":"gtdbtk","symclatron":"symclatron/symclatron_results.tsv"},"reason":"no_routed_prokaryotic_bins"}' > 08_prokaryote_qc/stage.json
-    """
-}
-
 process REPEAT_MASK_EUKARYOTES {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'gene'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
     scratch '/tmp'
 
     input:
@@ -436,9 +348,9 @@ JSON
 }
 
 process MAP_RNA_EVIDENCE {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'gene'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     tuple val(meta), path(assembly_dir), path(masking_dir), path(rna_reads)
@@ -533,9 +445,9 @@ JSON
 }
 
 process BRAKER3_EUKARYOTES {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'gene'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     tuple val(meta), path(masking_dir), path(rna_dir), path(protein_reference)
@@ -710,9 +622,9 @@ JSON
 }
 
 process PRODIGAL_GV_GENES {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'gene'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     tuple val(meta), path(routing_dir), path(viral_dir)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import math
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +24,17 @@ CONFIDENCE_LEVEL = re.compile(r"^([^:]+):([0-9]+(?:\.[0-9]+)?)$")
 FASTA_SUFFIXES = (".fasta", ".fna", ".faa", ".fa")
 SYMCLATRON_THRESHOLD = 0.725
 SYMCLATRON_MIN_UNI56 = 50.0
+BUSCO_DUPLICATED_BASIS = "BUSCO duplicated (not a contamination estimate)"
+BUSCO_REQUIRED = {
+    "Input_file",
+    "Dataset",
+    "Complete",
+    "Duplicated",
+    "Fragmented",
+    "Missing",
+    "n_markers",
+}
+BUSCO_FAILURE_DATASETS = {"No genes found", "Run failed; check logs"}
 PROKARYOTIC_DOMAIN_PREFIXES = ("d__Bacteria;", "d__Archaea;")
 RANKS = {
     "d": "domain",
@@ -118,6 +129,7 @@ def parse_quality(
             "gvclass": _parse_gvclass,
             "gtdbtk": _parse_gtdbtk,
             "quickclade": _parse_quickclade,
+            "busco": _parse_busco,
         }[parser_name]
         parsed = parser(path)
     return ParsedRows(
@@ -139,6 +151,7 @@ def _tool_name(tool: str) -> str:
         "gtdbtk": "gtdbtk",
         "symclatron": "symclatron",
         "quickclade": "quickclade",
+        "busco": "busco",
     }
     name = tool.strip().casefold()
     if name not in names:
@@ -498,6 +511,60 @@ def _symclatron_inapplicable_reason(
     return None
 
 
+def _parse_busco(path: Path) -> _ParsedToolRows:
+    """Parse BUSCO batch mode ``batch_summary.txt`` (percentages per input file).
+
+    BUSCO writes a row with a failure text in ``Dataset`` and empty metrics for an
+    input it could not score. Such a bin counts as observed, gets no QC row, and
+    gets an evidence-gap note.
+    """
+    rows, _ = _read_tsv(path, BUSCO_REQUIRED, hash_header=True)
+    qc_rows: list[NormalizedRow] = []
+    evidence_gaps: list[str] = []
+    observed: set[str] = set()
+    for row in rows:
+        target = _unique_target(row["Input_file"], observed, "BUSCO")
+        dataset = _required_text(row["Dataset"], "Dataset")
+        if dataset in BUSCO_FAILURE_DATASETS:
+            _require_empty_metrics(row, target)
+            evidence_gaps.append(f"{target}: BUSCO {dataset}")
+            continue
+        markers = _required_integer(row["n_markers"], "n_markers")
+        for column in ("Fragmented", "Missing"):
+            _required_float(row[column], column, 0, 100)
+        qc_rows.append(
+            {
+                **_qc_row("busco", target),
+                "completeness_percent": _required_float(
+                    row["Complete"], "Complete", 0, 100
+                ),
+                "completeness_basis": f"BUSCO {dataset} complete (n={markers})",
+                "contamination_percent": _required_float(
+                    row["Duplicated"], "Duplicated", 0, 100
+                ),
+                "contamination_basis": BUSCO_DUPLICATED_BASIS,
+            }
+        )
+        evidence_gaps.append(
+            f"{target}: BUSCO fragmented {row['Fragmented'].strip()}%, "
+            f"missing {row['Missing'].strip()}%"
+        )
+    return _ParsedToolRows(
+        qc_rows, [], [], tuple(sorted(observed)), tuple(evidence_gaps)
+    )
+
+
+def _require_empty_metrics(row: dict[str, str], target: str) -> None:
+    """Raise when a BUSCO failure row carries a value after ``Dataset``."""
+    filled = [
+        column
+        for column, value in row.items()
+        if column not in {"Input_file", "Dataset"} and value.strip() != ""
+    ]
+    if filled:
+        raise ValueError(f"BUSCO failure row for {target} has values in {filled}")
+
+
 def _parse_quickclade(path: Path) -> _ParsedToolRows:
     required = {"#QueryName", "lineage", "ConfLevel", "Confidence"}
     rows, _ = _read_tsv(path, required)
@@ -525,10 +592,13 @@ def _parse_quickclade(path: Path) -> _ParsedToolRows:
 def _read_tsv(
     path: Path,
     required: set[str],
+    *,
+    hash_header: bool = False,
 ) -> tuple[list[dict[str, str]], tuple[str, ...]]:
     csv.field_size_limit(max(csv.field_size_limit(), path.stat().st_size))
     with path.open(encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter="\t")
+        lines = _without_header_hash(handle) if hash_header else handle
+        reader = csv.DictReader(lines, delimiter="\t")
         fields = reader.fieldnames
         if fields is None:
             raise ValueError(f"TSV has no header: {path}")
@@ -543,6 +613,12 @@ def _read_tsv(
                 raise ValueError(f"malformed TSV row at line {line_number}: {path}")
             rows.append({key: value for key, value in raw.items() if key is not None})
     return rows, tuple(fields)
+
+
+def _without_header_hash(lines: Iterable[str]) -> Iterator[str]:
+    """Yield the lines of a TSV whose header may start with ``#``."""
+    for number, line in enumerate(lines):
+        yield line.removeprefix("#").lstrip(" ") if number == 0 else line
 
 
 def _target_id(value: str) -> str:
@@ -790,6 +866,12 @@ def _evidence_gaps(tool: str, detail_path: Path | None) -> tuple[str, ...]:
             (
                 "QuickClade reference identity and GC, STR, HH, CAGA, and k-mer "
                 "distances have no normalized catalog fields."
+            ),
+        ),
+        "busco": (
+            (
+                "BUSCO duplicated percent is stored as contamination_percent but is "
+                "not a contamination estimate."
             ),
         ),
     }

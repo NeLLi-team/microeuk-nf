@@ -134,6 +134,86 @@ def test_rejects_empty_protein(native_case: tuple[Path, Path]) -> None:
     assert _run(native_case) != 0
 
 
+def _warning(name: str, prefix: str = "[09/19/2026 08:10:21 PM] ") -> str:
+    return (
+        f"{prefix}WARNING: Skipping protein file "
+        f"checkm2/output/protein_files/{name}.faa as it was empty.\n"
+    )
+
+
+def _log(native_case: tuple[Path, Path], *warnings: str) -> None:
+    output, _bins = native_case
+    (output / "checkm2.log").write_text(
+        "[09/19/2026 08:10:20 PM] INFO: Processing DIAMOND output\n"
+        + "".join(warnings)
+        + NO_HITS,
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("prefix", ["[09/19/2026 08:10:21 PM] ", ""])
+def test_accepts_an_empty_protein_file_that_the_log_reports(
+    native_case: tuple[Path, Path], prefix: str
+) -> None:
+    output, _bins = native_case
+    (output / "protein_files/alpha.faa").write_text("", encoding="utf-8")
+    _log(native_case, _warning("alpha", prefix))
+
+    assert _run(native_case) == 0
+
+
+def test_rejects_an_empty_protein_file_whose_warning_names_another_bin(
+    native_case: tuple[Path, Path],
+) -> None:
+    output, _bins = native_case
+    (output / "protein_files/alpha.faa").write_text("", encoding="utf-8")
+    _log(native_case, _warning("beta"))
+
+    assert _run(native_case) != 0
+
+
+def test_rejects_a_warning_for_a_protein_file_that_has_content(
+    native_case: tuple[Path, Path],
+) -> None:
+    _log(native_case, _warning("alpha"))
+
+    assert _run(native_case) != 0
+
+
+def test_rejects_a_warning_for_a_file_that_is_not_an_input_bin(
+    native_case: tuple[Path, Path],
+) -> None:
+    output, _bins = native_case
+    (output / "protein_files/alpha.faa").write_text("", encoding="utf-8")
+    _log(native_case, _warning("alpha"), _warning("other"))
+
+    assert _run(native_case) != 0
+
+
+def test_rejects_a_repeated_empty_protein_warning(
+    native_case: tuple[Path, Path],
+) -> None:
+    output, _bins = native_case
+    (output / "protein_files/alpha.faa").write_text("", encoding="utf-8")
+    _log(native_case, _warning("alpha"), _warning("alpha"))
+
+    assert _run(native_case) != 0
+
+
+def test_rejects_a_warning_that_does_not_report_an_empty_file(
+    native_case: tuple[Path, Path],
+) -> None:
+    output, _bins = native_case
+    (output / "protein_files/alpha.faa").write_text("", encoding="utf-8")
+    _log(
+        native_case,
+        "[09/19/2026 08:10:21 PM] WARNING: Skipping protein file "
+        "checkm2/output/protein_files/alpha.faa as it was unreadable.\n",
+    )
+
+    assert _run(native_case) != 0
+
+
 def test_rejects_nonregular_diamond_result(native_case: tuple[Path, Path]) -> None:
     output, _bins = native_case
     (output / "diamond_output/DIAMOND_RESULTS_1.tsv").mkdir()

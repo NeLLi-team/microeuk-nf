@@ -52,6 +52,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "gvclass": args.gvclass_dir,
                     "ssuextract": args.ssuextract_dir,
                     "viral": args.viral_dir,
+                    "checkm2": args.checkm2_dir,
+                    "tiara": args.tiara_dir,
                 },
                 args.output_dir,
             )
@@ -88,11 +90,20 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument(
         "--mode", choices=("core", "full"), default="full", help="Analysis scope"
     )
-    prepare.add_argument(
-        "--skip-gene-calling",
-        action="store_true",
-        help="Skip dedicated gene calling and functional annotation",
+    gene_calling = prepare.add_mutually_exclusive_group()
+    gene_calling.add_argument(
+        "--enable-gene-calling",
+        dest="skip_gene_calling",
+        action="store_false",
+        help="Enable dedicated gene calling and functional annotation (off by default)",
     )
+    gene_calling.add_argument(
+        "--skip-gene-calling",
+        dest="skip_gene_calling",
+        action="store_true",
+        help="Skip dedicated gene calling and functional annotation (default)",
+    )
+    prepare.set_defaults(skip_gene_calling=True)
     prepare.add_argument(
         "--skip-annotation",
         action="store_true",
@@ -145,6 +156,18 @@ def _parser() -> argparse.ArgumentParser:
         route.add_argument(
             f"--{tool}-dir", type=Path, required=True, help=f"Native {tool} results"
         )
+    route.add_argument(
+        "--checkm2-dir",
+        type=Path,
+        required=True,
+        help="CheckM2 directory; output/quality_report.tsv may be absent if skipped",
+    )
+    route.add_argument(
+        "--tiara-dir",
+        type=Path,
+        required=True,
+        help="Tiara directory holding tiara.tsv",
+    )
     route.add_argument(
         "--output-dir", type=Path, required=True, help="Bin copies and routing evidence"
     )

@@ -88,10 +88,9 @@ run_case() {
     mkdir "$run"
     : > "$run/events.tsv"
     cat > "$run/main.nf" <<NF
-nextflow.enable.dsl = 2
 include { PRODIGAL_GV_GENES } from '$module'
 workflow {
-    PRODIGAL_GV_GENES(Channel.of(tuple([sample_id: 'CHECK', genetic_code: '$code'],
+    PRODIGAL_GV_GENES(channel.of(tuple([sample_id: 'CHECK', genetic_code: '$code'],
         file('$fixture/routing'), file('$fixture/viral'))))
 }
 NF

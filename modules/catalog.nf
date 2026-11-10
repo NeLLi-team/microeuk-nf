@@ -1,9 +1,7 @@
-import groovy.json.JsonOutput
-
 process COLLECT_RECORDS {
-    tag "${meta.sample_id}"
+    tag { meta.sample_id }
     label 'report'
-    publishDir "${params.outdir}/${meta.sample_id}", mode: 'copy'
+    publishDir { "${params.outdir}/${meta.sample_id}" }, mode: 'link'
 
     input:
     tuple val(meta), path(stage_dirs)
@@ -35,8 +33,8 @@ process COLLECT_RECORDS {
         basecaller_model: meta.basecaller_model,
         library_prep: meta.library_prep
     ]
-    def sampleJson = JsonOutput.toJson(sample)
-    def stages = stage_dirs.collect { "\"${it}\"" }.join(' ')
+    def sampleJson = groovy.json.JsonOutput.toJson(sample)
+    def stages = stage_dirs.collect { dir -> "\"${dir}\"" }.join(' ')
     """
     mkdir -p 14_collection
     cat > 14_collection/sample.json <<'JSON'
@@ -60,7 +58,7 @@ JSON
 process BUILD_CATALOG {
     tag 'catalog'
     label 'report'
-    publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}", mode: 'link'
 
     input:
     path records_jsons
@@ -69,7 +67,7 @@ process BUILD_CATALOG {
     path 'catalog', emit: result
 
     script:
-    def records = records_jsons.collect { "\"${it}\"" }.join(' ')
+    def records = records_jsons.collect { json -> "\"${json}\"" }.join(' ')
     """
     mkdir -p catalog
     "${params.cli}" catalog \
@@ -88,7 +86,7 @@ process BUILD_CATALOG {
 process BUILD_REPORT {
     tag 'report'
     label 'report'
-    publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}", mode: 'link'
 
     input:
     path catalog_dir
@@ -117,7 +115,7 @@ process BUILD_REPORT {
 process BUILD_VISUALIZATION {
     tag 'visualization'
     label 'report'
-    publishDir "${params.outdir}", mode: 'copy'
+    publishDir "${params.outdir}", mode: 'link'
 
     input:
     path catalog_dir

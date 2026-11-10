@@ -13,7 +13,7 @@ environments:
     - url: https://conda.anaconda.org/bioconda/
     packages:
       linux-64:
-      - conda: https://conda.anaconda.org/bioconda/linux-64/bbmap-40.02-h09cc210_0.conda
+      - conda: https://conda.anaconda.org/bioconda/linux-64/bbmap-40.05-h09cc210_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/htslib-1.24-ha79157c_0.conda
       - conda: https://conda.anaconda.org/bioconda/linux-64/samtools-1.24-h9dcdb79_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -87,9 +87,9 @@ environments:
     - url: https://conda.anaconda.org/bioconda/
     packages: {}
 packages:
-- conda: https://conda.anaconda.org/bioconda/linux-64/bbmap-40.02-h09cc210_0.conda
-  sha256: 4b5d1f3c1cb3cbddff7b73e5f12a80dceb6eb290bc8414381b282a4ae017440b
-  md5: 41dd161c95e7998168525583232ac5b0
+- conda: https://conda.anaconda.org/bioconda/linux-64/bbmap-40.05-h09cc210_0.conda
+  sha256: daa60baaaec2e952ebbba2f6f543643e08cefc5735c29a141b58ee247558bba4
+  md5: 6e4055c3a18656703e960fef6f45f119
   depends:
   - __glibc >=2.17,<3.0.a0
   - bzip2 >=1.0.8,<2.0a0
@@ -99,9 +99,9 @@ packages:
   license: BSD-3-Clause-LBNL
   run_exports:
     weak:
-    - bbmap >=40.2,<41.0a0
-  size: 108996560
-  timestamp: 1785792291478
+    - bbmap >=40.5,<41.0a0
+  size: 142290672
+  timestamp: 1792013241131
 - conda: https://conda.anaconda.org/bioconda/linux-64/htslib-1.24-ha79157c_0.conda
   sha256: 97e0f0b8700f56b1ade3034f81070ede705fce3ef9a1b5f15e79e3eb9997ac17
   md5: 232775112c6fea38e9e7c25d2a58d7d2

@@ -24,9 +24,10 @@ if [[ $BASH != "$root_bash" || ${CONDA_PREFIX:-} != "$root_prefix" \
         "$root_bash" "$0" "$@"
     exit "$?"
 fi
-skip_gene_calling=false
+skip_gene_calling=true
 skip_annotation=false
 skip_repeat_masking=true
+gene_option=''
 repeat_option=''
 ont_min_length=''
 prepare_args=()
@@ -46,12 +47,14 @@ while [[ $# -gt 0 ]]; do
             ont_min_length=$2
             shift
             ;;
-        --skip-gene-calling)
-            if [[ $skip_gene_calling == true ]]; then
-                echo 'Duplicate option: --skip-gene-calling' >&2
+        --enable-gene-calling|--skip-gene-calling)
+            if [[ -n "$gene_option" ]]; then
+                echo 'Supply at most one gene-calling option.' >&2
                 exit 2
             fi
+            gene_option=$argument
             skip_gene_calling=true
+            [[ $argument != --enable-gene-calling ]] || skip_gene_calling=false
             prepare_args+=("$argument")
             ;;
         --skip-annotation)
@@ -82,7 +85,7 @@ while [[ $# -gt 0 ]]; do
 done
 set -- "${positional_args[@]}"
 if [[ $# != 3 && $# != 4 && $# != 6 ]]; then
-    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--ont-min-length BASES] [--skip-gene-calling] [--skip-annotation] [--enable-repeat-masking | --skip-repeat-masking]' >&2
+    echo 'Usage: run-allocation.slurm SAMPLE_TSV RUN_DIRECTORY core|full [resume | resume-reviewed OLD_DIGEST NEW_DIGEST] [--ont-min-length BASES] [--enable-gene-calling | --skip-gene-calling] [--skip-annotation] [--enable-repeat-masking | --skip-repeat-masking]' >&2
     exit 2
 fi
 if [[ ! -f "$project_root/pixi.toml" ]]; then
@@ -104,6 +107,13 @@ if [[ ${4:-} == resume-reviewed ]]; then
         exit 2
     fi
 fi
+default_ont_min_length=$(awk '$1 == "ont_min_length" && $2 == "=" {print $3; exit}' \
+    "$project_root/nextflow.config")
+if [[ ! $default_ont_min_length =~ ^[1-9][0-9]*$ ]]; then
+    echo 'Cannot read the default ont_min_length from nextflow.config.' >&2
+    exit 2
+fi
+effective_ont_min_length=${ont_min_length:-$default_ont_min_length}
 samples=$(realpath "$1")
 run_dir=$(realpath -m "$2")
 registry="$project_root/conf/databases.yaml"
@@ -127,8 +137,8 @@ fi
 allocation_memory_gb=$((SLURM_MEM_PER_NODE / 1024))
 executor_memory_gb=$((allocation_memory_gb - 24))
 if [[ $mode == core ]]; then
-    minimum_allocation_gb=216
-    largest_process_memory_gb=192
+    minimum_allocation_gb=280
+    largest_process_memory_gb=256
 else
     minimum_allocation_gb=384
     largest_process_memory_gb=256
@@ -150,10 +160,13 @@ if [[ ${4:-} == resume || ${4:-} == resume-reviewed ]]; then
     [[ -s "$run_dir/prepared/inputs.json" ]]
     [[ -s "$identity" ]]
     saved_ont_min_length=$(awk -F '\t' '$1 == "ont_min_length" {print $2}' "$identity")
-    if [[ "$saved_ont_min_length" != "$ont_min_length" ]]; then
+    # A run prepared before the identity recorded this key keeps working when the
+    # option is omitted.
+    if [[ (-n "$saved_ont_min_length" || -n "$ont_min_length") \
+        && "$saved_ont_min_length" != "$effective_ont_min_length" ]]; then
         printf 'Resume ONT minimum length differs (saved: %s; requested: %s). %s\n' \
-            "${saved_ont_min_length:-none}" "${ont_min_length:-none}" \
-            'Repeat the saved override, omit the option if none was saved, or use a new run directory.' >&2
+            "${saved_ont_min_length:-none}" "$effective_ont_min_length" \
+            'Repeat the saved value, omit the option to use the default, or use a new run directory.' >&2
         exit 2
     fi
     resume_args=(-resume)
@@ -200,7 +213,8 @@ pixi run --as-is --manifest-path "$project_root/envs/bbtools/pixi.toml" \
     quickbin.sh quickclade.sh bbversion.sh java
 skip_repeat_masking=$(pixi run --as-is --manifest-path "$project_root/pixi.toml" \
     python - "$registry" "$mode" "$skip_gene_calling" "$skip_annotation" \
-    "$run_dir/prepared/inputs.json" "${4:-}" "$skip_repeat_masking" "$repeat_option" <<'PYTHON'
+    "$run_dir/prepared/inputs.json" "${4:-}" "$skip_repeat_masking" "$repeat_option" \
+    "$gene_option" <<'PYTHON'
 import json
 import sys
 from pathlib import Path
@@ -212,8 +226,13 @@ skip_annotation = sys.argv[4] == "true"
 skip_repeat_masking = sys.argv[7] == "true"
 if sys.argv[6] in ("resume", "resume-reviewed"):
     saved = json.loads(Path(sys.argv[5]).read_text(encoding="utf-8"))
+    prepared_gene_choice = saved.get("skip_gene_calling", False)
+    if not isinstance(prepared_gene_choice, bool):
+        raise SystemExit("Prepared skip_gene_calling must be a boolean.")
+    if not sys.argv[9]:
+        skip_gene_calling = prepared_gene_choice
     if (
-        saved.get("skip_gene_calling", False) != skip_gene_calling
+        prepared_gene_choice != skip_gene_calling
         or saved.get("skip_annotation", False) != skip_annotation
     ):
         raise SystemExit(
@@ -246,6 +265,7 @@ read_registry(
     mode=sys.argv[2],
     skip_gene_calling=skip_gene_calling,
     skip_annotation=skip_annotation,
+    skip_repeat_masking=skip_repeat_masking,
 )
 print(str(skip_repeat_masking).lower())
 PYTHON
@@ -300,9 +320,7 @@ else
         printf 'inputs_json_sha256\t%s\n' \
             "$(sha256sum "$run_dir/prepared/inputs.json" | awk '{print $1}')"
         printf 'source_revision\t%s\n' "$source_revision"
-        if [[ -n "$ont_min_length" ]]; then
-            printf 'ont_min_length\t%s\n' "$ont_min_length"
-        fi
+        printf 'ont_min_length\t%s\n' "$effective_ont_min_length"
     } > "$identity"
 fi
 mkdir -p "$run_dir/executions"
