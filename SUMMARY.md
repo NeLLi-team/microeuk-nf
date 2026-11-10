@@ -5,8 +5,40 @@ pipeline environments into the repository, freezes CheckEUK, GVClass, and
 SSUextract as commit-verified clones, splits the bin screens and prokaryote QC
 into parallel processes, adds Tiara contig classification and BUSCO and tidk
 eukaryote QC, reads the input once in read QC, and turns gene calling off by
-default. Its own validation record will be added after its pilot run. The
-records below describe the older source revisions that they name, not the
+default. The records after the next section describe the older source revisions
+that they name, not the upgraded pipeline.
+
+## Upgrade validation, 2026-11-10
+
+| Case | Job | Commit | Evidence |
+|---|---:|---|---|
+| MICRO, full mode | 27725402 | `e83ae52` | 21 completed tasks in 4 min 47 s; catalog, bundle, notebook, and HTML written |
+| ONT pilot `X0341_p01`, full mode | 27722802 | `0f217d0` | 21 completed tasks in 2 h 02 min; catalog and report audit below |
+
+The pilot ran with `--ont-min-length 1000` and gene calling off. Commit `e83ae52`
+differs from `0f217d0` only in three CPU labels and the start order of the viral
+screen. No resume was tested for the upgraded pipeline.
+
+Local gates at `e83ae52`: 398 unit tests pass, the Python style gate passes,
+`generate_models.py --check` passes, `nextflow lint` reports no error, and
+`tests/check_stage_merge.sh` passes.
+
+The pilot catalog holds 130 bins, 1,192 contigs, 408 quality rows, 931 taxonomy
+rows, 59 SSU loci, 28 viruses, 59 phenotype rows, and 175 artifacts. SQLite
+integrity is `ok` with zero foreign-key violations. The executed notebook has
+8 code cells and 0 errors. Routing gave 59 prokaryotic bins, 1 eukaryotic bin,
+1 viral bin, and 69 unresolved bins, 6 of them conflicting. The one eukaryotic
+bin is 90 kb; BUSCO found none of 125 markers in it, so the pilot does not
+test BUSCO on a real eukaryotic genome.
+
+Stage times in the pilot: read QC 42 s, assembly 1 min 45 s, mapping and
+binning 1 min, geNomad and CheckV 7 min, SSUextract 9 min, CheckM2 3 min,
+CheckEUK 19 min, GVClass 28 min, CheckM1 4 min, Symclatron 5 min, GTDB-Tk
+1 h 15 min. GTDB-Tk spends most of that time loading its six class-level
+reference trees, so its time does not scale with the bin count.
+
+Limits: one 1% ONT subset and one four-contig data set with a supplied
+assembly. No HiFi input and no gene-calling branch were executed on the
 upgraded pipeline.
 
 microeuk-nf is implemented for ONT and PacBio HiFi inputs. Validation covers
