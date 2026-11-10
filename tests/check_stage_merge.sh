@@ -359,7 +359,7 @@ cmp "$proof/tidk-expected.tsv" "$euk/tidk/tidk_summary.tsv" || fail 'tidk summar
 has "$proof/bins/shim.log" 'busco -i'
 has "$proof/bins/shim.log" '-m genome -l '
 has "$proof/bins/shim.log" '--offline --opt-out-run-stats -c 16'
-has "$proof/bins/shim.log" 'tidk explore --minimum 5 --maximum 12'
+has "$proof/bins/shim.log" 'tidk explore --minimum 5 --maximum 12 --threshold 5'
 
 # Case 5: no routed bins; both stages skip with their reasons.
 prok=$proof/nobins/results/T1/08_prokaryote_qc

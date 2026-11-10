@@ -134,6 +134,10 @@ from the unbinned viral gene input.
 
 Each routed eukaryotic bin gets a BUSCO run against the offline `eukaryota_odb12`
 lineage (genome mode, miniprot) and a `tidk explore` search for telomeric repeats.
+tidk runs with `--threshold 5`: its default of 100 consecutive repeat units reported
+no repeat for any tested protist bin, and a threshold of 5 recovered the known
+C4A4 and C4A2 telomere repeats of ciliate bins. The top repeat of a bin is a
+candidate, not a confirmed telomere; a short tandem repeat can outrank it.
 Both are quality evidence for review; neither changes a route. The catalog stores the
 BUSCO complete percentage as `completeness_percent` and the duplicated percentage as
 `contamination_percent`. Their bases name BUSCO and its lineage. Duplicated markers

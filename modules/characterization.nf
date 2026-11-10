@@ -751,7 +751,7 @@ process EUKARYOTE_QC {
         for FASTA in "\${BINS[@]}"; do
             BIN=\$(basename "\${FASTA}" .fna)
             pixi run --as-is --manifest-path "${params.eukqc_manifest}" --environment tidk \
-                tidk explore --minimum 5 --maximum 12 "\${FASTA}" \
+                tidk explore --minimum 5 --maximum 12 --threshold 5 "\${FASTA}" \
                 > "16_eukaryote_qc/tidk/\${BIN}.explore.tsv"
             awk -F '\t' -v bin="\${BIN}" '
                 NR == 1 {next}
